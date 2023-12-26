@@ -11,6 +11,20 @@ x-spark-common:
     - ./data:/data
 
 services:
+  airflow:
+    build: 
+      context: ./airflow
+    env_file: ./airflow/.env
+    volumes:
+      - ./airflow/dags:/opt/airflow/dags
+      - ./airflow/logs:/opt/airflow/logs
+      - ./data:/data
+    depends_on:
+      hdfs-namenode:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+
   spark-master:
     <<: *spark-common
     environment:
@@ -21,7 +35,7 @@ services:
       - SPARK_SSL_ENABLED=no
       - SPARK_USER=spark
     ports:
-      - '8080:8080'
+      - '8088:8080'
   
   spark-worker:
     <<: *spark-common
@@ -46,6 +60,12 @@ services:
       - ./hadoop.env
     environment:
       ENSURE_NAMENODE_DIR: "/tmp/hadoop-root/dfs/name"
+    healthcheck:
+      test: ["CMD", "hdfs", "fsck", "/"]
+      interval: 30s
+      timeout: 30s
+      retries: 5
+      start_period: 10s
   
   hdfs-datanode:
     image: apache/hadoop:3
