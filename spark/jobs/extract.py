@@ -2,6 +2,8 @@ import os
 import logging
 import argparse
 
+from pyspark.sql import SparkSession
+from pyspark import SparkConf
 from datetime import datetime, timedelta
 import requests
 import json
@@ -17,16 +19,24 @@ def main(
     start_dt: datetime,
     end_dt: datetime
 ):
-    # TODO: integrate extract to hdfs with spark in compressed filetype
-    res = extract_flights_by_airport(
+    
+    spark = SparkSession.builder \
+        .appName("Data extraction") \
+        .getOrCreate()
+    sc = spark.sparkContext
+
+    out_path = "hdfs://namenode:8020/flights.parquet"
+
+    flight_batches = extract_flights_by_airport(
         "departure", 
         airport,
         start_dt,
         end_dt
     )
-    for flight in res:
-        print(flight["icao24"])
-
+    for batch in flight_batches:
+        rdd = sc.parallelize(batch)
+        df = spark.createDataFrame(rdd)
+        df.write.parquet(out_path, mode = "append")
 
 def extract_flights_by_airport(
     type: str,
@@ -117,10 +127,12 @@ def extract_flights_by_airport(
             logging.warning(f"No flights found from {type} API call")
 
         list_flights = json.loads(response.content) # Into list of dicts
-        for flight in list_flights[:2]:
-            yield flight
+        yield list_flights
 
         cur_start_dt += limit_period
+
+
+
 
 
 if __name__ == "__main__":

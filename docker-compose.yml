@@ -1,0 +1,54 @@
+# Customized from:
+# - bitnami/spark: https://raw.githubusercontent.com/bitnami/containers/main/bitnami/spark/docker-compose.yml
+# - apache/hadoop: https://hub.docker.com/r/apache/hadoop
+  
+x-spark-common:
+  &spark-common
+  build: ./spark
+  volumes:
+    - ./spark/jobs:/jobs
+    - ./spark/requirements.txt:/requirements.txt
+    - ./data:/data
+
+services:
+  spark-master:
+    <<: *spark-common
+    environment:
+      - SPARK_MODE=master
+      - SPARK_RPC_AUTHENTICATION_ENABLED=no
+      - SPARK_RPC_ENCRYPTION_ENABLED=no
+      - SPARK_LOCAL_STORAGE_ENCRYPTION_ENABLED=no
+      - SPARK_SSL_ENABLED=no
+      - SPARK_USER=spark
+    ports:
+      - '8080:8080'
+  
+  spark-worker:
+    <<: *spark-common
+    environment:
+      - SPARK_MODE=worker
+      - SPARK_MASTER_URL=spark://spark:7077
+      - SPARK_WORKER_MEMORY=1G
+      - SPARK_WORKER_CORES=1
+      - SPARK_RPC_AUTHENTICATION_ENABLED=no
+      - SPARK_RPC_ENCRYPTION_ENABLED=no
+      - SPARK_LOCAL_STORAGE_ENCRYPTION_ENABLED=no
+      - SPARK_SSL_ENABLED=no
+      - SPARK_USER=spark
+
+  hdfs-namenode:
+    image: apache/hadoop:3
+    hostname: namenode
+    command: ["hdfs", "namenode"]
+    ports:
+      - 9870:9870
+    env_file:
+      - ./hadoop.env
+    environment:
+      ENSURE_NAMENODE_DIR: "/tmp/hadoop-root/dfs/name"
+  
+  hdfs-datanode:
+    image: apache/hadoop:3
+    command: ["hdfs", "datanode"]
+    env_file:
+      - ./hadoop.env
