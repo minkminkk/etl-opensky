@@ -1,5 +1,5 @@
-setup: setup.sh
-	bash setup.sh
+setup: download_data.sh
+	bash download_data.sh
 up:
 	docker compose up -d
 # docker exec etl-opensky-spark-master-1 pip install --no-cache-dir -r /requirements.txt
