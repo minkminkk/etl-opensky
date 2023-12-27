@@ -1,1 +1,3 @@
-# TODO: Choose airflow packages and Python dependencies
+# Provider dependencies
+apache-airflow-providers-apache-spark
+apache-airflow-providers-apache-hdfs

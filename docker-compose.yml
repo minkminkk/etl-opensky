@@ -4,9 +4,8 @@
   
 x-spark-common:
   &spark-common
-  build: ./spark
+  image: bitnami/spark:3.5
   volumes:
-    - ./spark/jobs:/jobs
     - ./spark/requirements.txt:/requirements.txt
     - ./data:/data
 
@@ -18,6 +17,7 @@ services:
     volumes:
       - ./airflow/dags:/opt/airflow/dags
       - ./airflow/logs:/opt/airflow/logs
+      - ./spark/jobs:/opt/airflow/jobs
       - ./data:/data
     depends_on:
       hdfs-namenode:
@@ -41,7 +41,7 @@ services:
     <<: *spark-common
     environment:
       - SPARK_MODE=worker
-      - SPARK_MASTER_URL=spark://spark:7077
+      - SPARK_MASTER_URL=spark://spark-master:7077
       - SPARK_WORKER_MEMORY=1G
       - SPARK_WORKER_CORES=1
       - SPARK_RPC_AUTHENTICATION_ENABLED=no

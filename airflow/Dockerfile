@@ -1,4 +1,22 @@
-FROM apache/airflow:slim-2.7.3
+FROM apache/airflow:slim-2.7.3-python3.11
+
+# Install build packages
+# gcc, heimdal-dev as provider packages dependencies
+# openjdk for pyspark client (https://airflow.apache.org/docs/docker-stack/build.html#example-of-adding-airflow-provider-package-and-apt-package)
+USER root
+RUN apt-get update -y \
+    && apt-get install -y --no-install-recommends \
+        gcc \
+        heimdal-dev \
+        openjdk-17-jre-headless \
+    && apt-get autoremove -yqq \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Airflow & Python packages
+USER ${AIRFLOW_UID}
+COPY ./requirements.txt /
+RUN pip install --no-cache-dir -r /requirements.txt
 
 # Migrate DB & create account
 RUN airflow db migrate \
@@ -9,15 +27,6 @@ RUN airflow db migrate \
     --lastname Admin \
     --role Admin \
     --email admin@localhost
-
-WORKDIR /opt/airflow
-
-RUN mkdir -p logs temp \
-    && chmod a+rw logs temp
-
-# Install Airflow & Python packages
-COPY ./requirements.txt /
-RUN pip install --no-cache-dir -r /requirements.txt
 
 # Init webserver & scheduler
 ENTRYPOINT ["airflow", "standalone"]
