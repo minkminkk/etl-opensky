@@ -13,6 +13,7 @@ import json
 from time import sleep
 
 # Globals
+API_LIMIT_PERIOD = timedelta(days = 7)
 DATETIME_FORMAT = "%Y-%m-%d"
 FLIGHTS_SCHEMA = StructType([
     StructField("icao24", StringType(), nullable = False),
@@ -32,8 +33,8 @@ FLIGHTS_SCHEMA = StructType([
 
 def main(
     airport: str,
-    start_dt: datetime,
-    end_dt: datetime
+    start: datetime,
+    end: datetime
 ):
     spark = SparkSession.builder \
         .appName("Data extraction") \
@@ -43,12 +44,7 @@ def main(
 
     out_path = "hdfs://namenode:8020/flights"
 
-    flight_batches = extract_flights_by_airport(
-        "departure", 
-        airport,
-        start_dt,
-        end_dt
-    )
+    flight_batches = extract_flights_by_airport("departure", airport, start, end)
 
     # TODO: Benchmark createDataFrame(batch) vs createDataFrame(parallelize(batch))
     for batch in flight_batches:
@@ -75,8 +71,8 @@ def main(
 def extract_flights_by_airport(
     type: str,
     airport_icao: str,
-    start_dt: datetime,
-    end_dt: datetime,
+    start: datetime,
+    end: datetime,
     period: timedelta = timedelta(days = 1)
 ):
     """Extract flights data to/from a particular airport using OpenSky API
@@ -85,24 +81,24 @@ def extract_flights_by_airport(
         type [str]: Literal values 'departure' or 'arrival', indicating type of
             flight to/from an airport.
         airport_icao [str]: ICAO code of airport (4 letters, case insensitive).
-        start_dt [datetime]: Start datetime.
-        end_dt [datetime]: End datetime.
+        start [datetime]: Start datetime.
+        end [datetime]: End datetime.
         period [timedelta]: Time period for data in each API call.
+            Defaults to 1 day.
 
     Yields:
-        flight [List[dict]]: Data about extracted flight.
+        flight [List[dict]]: Data about extracted flight. 
+            Generate 1 list per successful API call.
 
     Raises:
         ValueError: at invalid argument inputs.
     """
-    API_LIMIT_PERIOD = timedelta(days = 7)
-
     # Input validation
     if type not in ("arrival", "departure"):
         raise ValueError("\"type\" must be \"arrival\" or \"departure\".")
 
     # Warning if requested date range is larger than API limit
-    if end_dt - start_dt > API_LIMIT_PERIOD \
+    if end - start > API_LIMIT_PERIOD \
         and period > API_LIMIT_PERIOD:
         period = API_LIMIT_PERIOD
 
@@ -113,15 +109,15 @@ def extract_flights_by_airport(
         )
 
     # Extract data from API
-    cur_start_dt = start_dt
-    while cur_start_dt < end_dt:
+    cur_start = start
+    while cur_start < end:
         # Convert datetime objects to Epoch timestamp
-        if end_dt - cur_start_dt <= period:
-            cur_end_dt = end_dt
+        if end - cur_start <= period:
+            cur_end = end
         else:
-            cur_end_dt = cur_start_dt + period
-        start_ts = int(cur_start_dt.timestamp())
-        end_ts = int(cur_end_dt.timestamp())
+            cur_end = cur_start + period
+        start_ts = int(cur_start.timestamp())
+        end_ts = int(cur_end.timestamp())
 
         # Fill API URL params
         url = f"https://opensky-network.org/api/flights/{type}" \
@@ -132,33 +128,35 @@ def extract_flights_by_airport(
         # Send request and parse json
         logging.info(
             f"Extracting {type} data from " \
-            + f"{cur_start_dt.strftime(DATETIME_FORMAT)} to "\
-            + f"{cur_end_dt.strftime(DATETIME_FORMAT)}"
+            + f"{cur_start.strftime(DATETIME_FORMAT)} to "\
+            + f"{cur_end.strftime(DATETIME_FORMAT)}"
         )
         response = requests.get(url)
 
-        # Usually if status code 400 means server did not have 
-        # data for the requested time. Stop extraction
-        if response.status_code == 404:
+        # Most of the cases 400-status code means invalid input
+        if 400 <= response.status_code < 500:
             logging.critical(f"Invalid response. Ending data extraction.")
-            break
+            raise ValueError("Invalid input.")
 
         # API sometimes returns 5xx status code, can get data if retry 1-2 times
         # Raise error if it still occurs after 3 retries
         retry_cnt = 0
-        while response.status_code == 500 and retry_cnt < 3:
-            logging.warning(
-                f"Server error. Retrying in 3 seconds ({3-retry_cnt} times left)"
-            )
-            retry_cnt += 1
-            sleep(3)
-            response = requests.get(url)
-        response.raise_for_status()
+        if response.status_code == 500:
+            while retry_cnt < 3:
+                logging.warning(
+                    f"Server error. Retrying in 3 seconds" \
+                        + "({3 - retry_cnt} times left)"
+                )
+                retry_cnt += 1
+                sleep(3)
+                response = requests.get(url)
+            raise ConnectionError("Cannot get response from server. \
+Try again later")
 
         list_flights = json.loads(response.content) # Into list of dicts
         yield list_flights
         
-        cur_start_dt += period
+        cur_start += period
 
 
 if __name__ == "__main__":
@@ -168,11 +166,11 @@ if __name__ == "__main__":
         help = "airport to be investigated, " \
             + "input as ICAO24 address (4 case-insensitive hexadecimal letters)"
     )
-    parser.add_argument("start_dt",
-        help = "start datetime (in YYYY-MM-DD)"
+    parser.add_argument("start",
+        help = "start date (in YYYY-MM-DD)"
     )
-    parser.add_argument("end_dt",
-        help = "end datetime (in YYYY-MM-DD)"
+    parser.add_argument("end",
+        help = "end date (in YYYY-MM-DD)"
     )
     args = parser.parse_args()
 
@@ -185,15 +183,15 @@ if __name__ == "__main__":
         raise ValueError("\"airport\" must be 4 letters.")
     
     try:
-        args.start_dt = datetime.strptime(args.start_dt, DATETIME_FORMAT)
-        args.end_dt = datetime.strptime(args.end_dt, DATETIME_FORMAT)
+        args.start = datetime.strptime(args.start, DATETIME_FORMAT)
+        args.end = datetime.strptime(args.end, DATETIME_FORMAT)
     except ValueError:
-        raise ValueError("\"start_dt\", \"end_dt\" dates must be in \
+        raise ValueError("\"start\", \"end\" dates must be in \
 YYYY-MM-DD format.")
 
     # Call main function
     main(
         airport = args.airport,
-        start_dt = args.start_dt,
-        end_dt = args.end_dt
+        start = args.start,
+        end = args.end
     )
