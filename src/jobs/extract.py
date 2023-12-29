@@ -14,7 +14,8 @@ from time import sleep
 
 # Globals
 API_LIMIT_PERIOD = timedelta(days = 7)
-DATETIME_FORMAT = "%Y-%m-%d"
+AIRPORT_ICAO = "EDDF"
+DATE_FORMAT = "%Y-%m-%d"
 FLIGHTS_SCHEMA = StructType([
     StructField("icao24", StringType(), nullable = False),
     StructField("firstSeen", LongType()),
@@ -36,19 +37,21 @@ def main(
     start: datetime,
     end: datetime
 ):
+    """Extract data from OpenSky API, rename columns, and write data into HDFS.
+    Partition by departureDate.
+
+
+    """
+    out_path_hdfs = "hdfs://namenode:8020/flights"
+    
     spark = SparkSession.builder \
         .appName("Data extraction") \
         .master("spark://spark-master:7077") \
         .getOrCreate()
-    # sc = spark.sparkContext
 
-    out_path = "hdfs://namenode:8020/flights"
-
-    flight_batches = extract_flights_by_airport("departure", airport, start, end)
-
-    # TODO: Benchmark createDataFrame(batch) vs createDataFrame(parallelize(batch))
-    for batch in flight_batches:
-        df = spark.createDataFrame(batch, schema = FLIGHTS_SCHEMA)
+    for response in send_requests("departure", airport, start, end):
+        list_flights = process_response(response)
+        df = spark.createDataFrame(list_flights, schema = FLIGHTS_SCHEMA)
         df = df \
             .withColumn(
                 "firstSeen", 
@@ -65,17 +68,17 @@ def main(
             
         df.write \
             .partitionBy("departureDate") \
-            .parquet(out_path, mode = "overwrite")
+            .parquet(out_path_hdfs, mode = "overwrite")
             
 
-def extract_flights_by_airport(
+def send_requests(
     type: str,
     airport_icao: str,
     start: datetime,
     end: datetime,
     period: timedelta = timedelta(days = 1)
 ):
-    """Extract flights data to/from a particular airport using OpenSky API
+    """Send requests to OpenSky API and check for 4xx, 5xx response status codes
 
     Args:
         type [str]: Literal values 'departure' or 'arrival', indicating type of
@@ -87,19 +90,19 @@ def extract_flights_by_airport(
             Defaults to 1 day.
 
     Yields:
-        flight [List[dict]]: Data about extracted flight. 
-            Generate 1 list per successful API call.
+        response [requests.Response]: Response from server after checked for
+            4xx, 5xx status codes
 
     Raises:
         ValueError: at invalid argument inputs.
+        ConnectionError: at 5xx response status code even after 3 retries.
     """
     # Input validation
     if type not in ("arrival", "departure"):
         raise ValueError("\"type\" must be \"arrival\" or \"departure\".")
 
     # Warning if requested date range is larger than API limit
-    if end - start > API_LIMIT_PERIOD \
-        and period > API_LIMIT_PERIOD:
+    if end - start > API_LIMIT_PERIOD and period > API_LIMIT_PERIOD:
         period = API_LIMIT_PERIOD
 
         logging.warning(
@@ -125,18 +128,33 @@ def extract_flights_by_airport(
             + f"&begin={start_ts}" \
             + f"&end={end_ts}"
 
-        # Send request and parse json
+        # Send request
         logging.info(
             f"Extracting {type} data from " \
-            + f"{cur_start.strftime(DATETIME_FORMAT)} to "\
-            + f"{cur_end.strftime(DATETIME_FORMAT)}"
+            + f"{cur_start.strftime(DATE_FORMAT)} to "\
+            + f"{cur_end.strftime(DATE_FORMAT)}"
         )
         response = requests.get(url)
 
-        # Most of the cases 400-status code means invalid input
-        if 400 <= response.status_code < 500:
-            logging.critical(f"Invalid response. Ending data extraction.")
+        # Status code 400 means invalid input
+        if response.status_code == 400:
+            logging.error(f"Invalid input. Ending program...")
             raise ValueError("Invalid input.")
+
+        # If server returns error 404, it is most likely that the data source
+        # is not updated and it is most likely that we will have the same 
+        # situation if going forward. Therefore stop extraction and proceed to 
+        # subsequent processing steps. Users will decide if it will run the 
+        # pipeline for the future or not.
+        # It is also to prevent users from mistyping years into the future.
+        if response.status_code == 404:
+            logging.warn(
+                f"Server has no data about {type} flights "
+                + f"from {cur_start.strftime(DATE_FORMAT)} "
+                + f"to {cur_end.strftime(DATE_FORMAT)}."
+            )
+            logging.warn("Stop data extraction. Proceed to next step.")
+            break
 
         # API sometimes returns 5xx status code, can get data if retry 1-2 times
         # Raise error if it still occurs after 3 retries
@@ -144,20 +162,46 @@ def extract_flights_by_airport(
         if response.status_code == 500:
             while retry_cnt < 3:
                 logging.warning(
-                    f"Server error. Retrying in 3 seconds" \
-                        + "({3 - retry_cnt} times left)"
+                    "Server error. Retrying in 5 seconds " \
+                        + f"({3 - retry_cnt} times left)"
                 )
                 retry_cnt += 1
-                sleep(3)
+                sleep(5)    # Go easy on server
+                print("Sending request again")
                 response = requests.get(url)
             raise ConnectionError("Cannot get response from server. \
 Try again later")
 
-        list_flights = json.loads(response.content) # Into list of dicts
-        yield list_flights
-        
+        yield response
+
+        sleep(1)    # Go easy on server
         cur_start += period
 
+
+def process_response(response: requests.Response):
+    """Process response after checked for 4xx, 5xx status codes
+
+    Arg:
+        response [requests.Response]: Response from server.
+
+    Returns:
+        list_flights [List[dict]]: Data about extracted flight. 
+            Generate 1 list per successful API call.
+
+    Raises:
+        Exception: When the response does not contain the expected JSON schema.
+    """
+
+    list_flights = json.loads(response.content) # Into list of dicts
+
+    try:
+        list_flights[0]["icao24"]
+    except KeyError or TypeError:
+        logging.error("Unexcepted response schema.")
+        raise Exception("Unexpected response schema")
+
+    return list_flights
+        
 
 if __name__ == "__main__":
     # Parse CLI arguments
@@ -183,11 +227,14 @@ if __name__ == "__main__":
         raise ValueError("\"airport\" must be 4 letters.")
     
     try:
-        args.start = datetime.strptime(args.start, DATETIME_FORMAT)
-        args.end = datetime.strptime(args.end, DATETIME_FORMAT)
+        args.start = datetime.strptime(args.start, DATE_FORMAT)
+        args.end = datetime.strptime(args.end, DATE_FORMAT)
     except ValueError:
         raise ValueError("\"start\", \"end\" dates must be in \
 YYYY-MM-DD format.")
+
+    if args.start > args.end:
+        raise ValueError("\"start\" must be sooner than \"end\"")
 
     # Call main function
     main(
