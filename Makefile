@@ -2,7 +2,6 @@ setup: download_data.sh
 	bash download_data.sh \
 		&& mkdir -p containers/airflow/logs \
 		&& chmod a+rw containers/airflow/logs
-	python src/setup_jobs.py install
 
 up:
 	docker compose up -d --build
