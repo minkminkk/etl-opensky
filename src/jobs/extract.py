@@ -3,7 +3,6 @@ import logging
 import argparse
 
 from pyspark.sql import SparkSession
-from pyspark import SparkConf
 from pyspark.sql.types import *
 from pyspark.sql.functions import from_unixtime, to_timestamp, to_date
 
@@ -40,7 +39,10 @@ def main(
     """Extract data from OpenSky API, rename columns, and write data into HDFS.
     Partition by departureDate.
 
-
+    Required command-line args:
+        airport [str]: ICAO24 address of airport (case-insensitive)
+        start [date - YYYY-MM-DD]: Start date
+        end [date - YYYY-MM-DD]: End date
     """
     out_path_hdfs = "hdfs://namenode:8020/flights"
     
