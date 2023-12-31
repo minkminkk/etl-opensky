@@ -1,12 +1,11 @@
 setup: download_data.sh
 	bash download_data.sh \
-		&& mkdir -p airflow/logs \
-		&& chmod a+rw airflow/logs
+		&& mkdir -p containers/airflow/logs \
+		&& chmod a+rw containers/airflow/logs
+	python src/setup_jobs.py install
 
 up:
 	docker compose up -d --build
-	docker exec etl-opensky-spark-master-1 pip install --no-cache-dir -r /requirements.txt
-	docker exec etl-opensky-spark-worker-1 pip install --no-cache-dir -r /requirements.txt
 down:
 	docker compose down
 start:
