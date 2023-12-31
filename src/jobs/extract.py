@@ -150,12 +150,12 @@ def send_requests(
         # pipeline for the future or not.
         # It is also to prevent users from mistyping years into the future.
         if response.status_code == 404:
-            logging.warn(
+            logging.warning(
                 f"Server has no data about {type} flights "
                 + f"from {cur_start.strftime(DATE_FORMAT)} "
                 + f"to {cur_end.strftime(DATE_FORMAT)}."
             )
-            logging.warn("Stop data extraction. Proceed to next step.")
+            logging.warning("Stop data extraction. Proceed to next step.")
             break
 
         # API sometimes returns 5xx status code, can get data if retry 1-2 times

@@ -7,7 +7,8 @@ from datetime import datetime
 
 default_args = {
     "start_date": datetime(2018, 1, 1),
-    "schedule": "@once",
+    "end_date": datetime(2020, 1, 1),
+    "schedule": "@daily",
     "retries": 0
 }
 
@@ -21,12 +22,10 @@ with DAG(
     # lag current time by 2 months
     interval_start = "{{ \
         data_interval_start \
-        .subtract(months = 2) \
         .to_date_string() \
     }}"
     interval_end = "{{ \
         data_interval_end \
-        .subtract(months = 2) \
         .to_date_string() \
     }}"
 
@@ -37,5 +36,6 @@ with DAG(
             "EDDF", 
             interval_start,
             interval_end
-        ]
+        ],
+        py_files = "/dist/spark-jobs*.egg",
     )
