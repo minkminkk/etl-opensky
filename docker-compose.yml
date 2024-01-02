@@ -14,7 +14,7 @@ services:
       context: ./containers/airflow
     env_file: ./containers/airflow/.env
     volumes:
-      - ./containers/airflow/logs:/opt/airflow/logs
+      - ./logs/airflow:/opt/airflow/logs
       - ./src/dags:/opt/airflow/dags
       - ./src/jobs:/opt/airflow/jobs
       - ./data:/data
@@ -36,6 +36,7 @@ services:
     ports:
       - '8088:8080'
     volumes:
+      - ./logs/spark:/opt/bitnami/spark/logs
       - ./data:/data
       - ./dist:/dist
 

@@ -18,24 +18,17 @@ with DAG(
     description = "Extract flights info from/to Frankfurt airport daily",
     default_args = default_args
 ) as dag:
-    # Source is about 2 months behind current time therefore 
-    # lag current time by 2 months
-    interval_start = "{{ \
-        data_interval_start \
-        .to_date_string() \
-    }}"
-    interval_end = "{{ \
-        data_interval_end \
-        .to_date_string() \
-    }}"
+    # Start of execution_date
+    interval_start = "{{data_interval_start.to_date_string()}}" 
 
     extract = SparkSubmitOperator(
         task_id = "extract_opensky_api",
         application = "/opt/airflow/jobs/extract.py",
         application_args = [
             "EDDF", 
-            interval_start,
-            interval_end
+            interval_start
         ],
         py_files = "/dist/spark-jobs*.egg",
+        retries = 5,
+        retry_delay = 10
     )

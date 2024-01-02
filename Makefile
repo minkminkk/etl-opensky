@@ -1,10 +1,10 @@
 setup: download_data.sh
 	bash download_data.sh \
-		&& mkdir -p containers/airflow/logs \
-		&& chmod a+rw containers/airflow/logs
+		&& mkdir -p ./logs/spark ./logs/airflow \
+		&& chmod a+rw -R ./logs
 
 up:
-	docker compose up -d --build
+	docker compose up -d
 down:
 	docker compose down
 start:
