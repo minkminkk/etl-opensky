@@ -18,17 +18,24 @@ with DAG(
     description = "Extract flights info from/to Frankfurt airport daily",
     default_args = default_args
 ) as dag:
-    # Start of execution_date
-    interval_start = "{{data_interval_start.to_date_string()}}" 
+    ds = "{{ ds }}"     # DAG run date 
 
     extract = SparkSubmitOperator(
         task_id = "extract_opensky_api",
         application = "/opt/airflow/jobs/extract.py",
         application_args = [
             "EDDF", 
-            interval_start
+            ds
         ],
         py_files = "/dist/spark-jobs*.egg",
         retries = 5,
         retry_delay = 10
     )
+
+    transform = SparkSubmitOperator(
+        task_id = "transform",
+        application = "/opt/airflow/jobs/transform.py",
+        application_args = [ds]
+    )
+
+    extract >> transform

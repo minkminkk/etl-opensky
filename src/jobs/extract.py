@@ -1,19 +1,19 @@
 import os
 import logging
 import argparse
+from datetime import datetime, timedelta
 
 from pyspark.sql import SparkSession
 from pyspark.sql.types import *
 from pyspark.sql.functions import from_unixtime, to_timestamp, year, month, day
 
-from datetime import datetime, timedelta
 import requests
 import json
 
 # Globals
 AIRPORT_ICAO = "EDDF"
 DATE_FORMAT = "%Y-%m-%d"
-FLIGHTS_SCHEMA = StructType([
+SRC_FLIGHTS_SCHEMA = StructType([
     StructField("icao24", StringType(), nullable = False),
     StructField("firstSeen", LongType()),
     StructField("estDepartureAirport", StringType()),
@@ -25,7 +25,7 @@ FLIGHTS_SCHEMA = StructType([
     StructField("estArrivalAirportHorizDistance", IntegerType()),
     StructField("estArrivalAirportVertDistance", IntegerType()),
     StructField("departureAirportCandidatesCount", ShortType()),
-    StructField("arrivalAirportCandidatesCount", ShortType()),
+    StructField("arrivalAirportCandidatesCount", ShortType())
 ])
 
 
@@ -47,13 +47,13 @@ def main(
         .master("spark://spark-master:7077") \
         .getOrCreate()
 
-    # TODO: Include also arrival calls, ensure idempotent in 'append' mode
-    df_to_import = spark.createDataFrame([], schema = FLIGHTS_SCHEMA)
+    # Extract data
+    df_to_import = spark.createDataFrame([], schema = SRC_FLIGHTS_SCHEMA)
     for type in ["departure", "arrival"]:
         response = request_opensky(type, airport, execution_date)
         list_flights = process_response(response)
 
-        df = spark.createDataFrame(list_flights, schema = FLIGHTS_SCHEMA)
+        df = spark.createDataFrame(list_flights, schema = SRC_FLIGHTS_SCHEMA)
         df_to_import = df_to_import.unionByName(df)
     
     # Calculate partitions
@@ -70,10 +70,10 @@ def main(
         .drop("departure_ts")
     
     # Write into HDFS
-    df_to_import.show()
+    df_to_import.show()     # for log checking purposes
     df_to_import.write \
         .partitionBy("year", "month", "day") \
-        .parquet(out_path_hdfs, mode = "overwrite")
+        .parquet(out_path_hdfs, mode = "append")
 
 
 def request_opensky(
@@ -125,7 +125,7 @@ def request_opensky(
     return response
     
 
-def process_response(response: requests.Response, retries: int = 3):
+def process_response(response: requests.Response):
     """Process response (evaluate status code, parse response)
 
     Arg:
@@ -141,7 +141,7 @@ def process_response(response: requests.Response, retries: int = 3):
     logging.info("Response:", response.content)
     list_flights = json.loads(response.content) # Into list of dicts
 
-    for name in FLIGHTS_SCHEMA.fieldNames():
+    for name in SRC_FLIGHTS_SCHEMA.fieldNames():
         try:
             list_flights[0][name]
         except KeyError or TypeError:
@@ -174,8 +174,7 @@ if __name__ == "__main__":
     try:
         args.execution_date = datetime.strptime(args.execution_date, DATE_FORMAT)
     except ValueError:
-        raise ValueError("\"start\", \"end\" dates must be in \
-YYYY-MM-DD format.")
+        raise ValueError("\"execution_date\" must be in YYYY-MM-DD format.")
 
     # Call main function
     main(
