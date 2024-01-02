@@ -148,7 +148,7 @@ def process_response(response: requests.Response, retries: int = 3):
             logging.error("Unexcepted response schema.")
             raise Exception("Unexpected response schema")
 
-        return list_flights
+    return list_flights
         
 
 if __name__ == "__main__":
