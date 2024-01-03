@@ -41,7 +41,10 @@ def main(execution_date: datetime):
         .getOrCreate()
     
     # Read current data
-    df_cur_partition = spark.read.parquet(partition_path) \
+    df_cur_partition = spark.read.parquet(partition_path)
+    
+    # Filter & rename columns, parse ts into dates & times
+    df_cur_partition = df_cur_partition \
         .select(
             "icao24",
             "firstSeen",
@@ -55,6 +58,24 @@ def main(execution_date: datetime):
         .withColumnRenamed("estDepartureAirport", "depart_airport") \
         .withColumnRenamed("lastSeen", "arrival_ts") \
         .withColumnRenamed("estArrivalAirport", "arrival_airport")
+    
+    df_cur_partition = df_cur_partition \
+        .withColumn(
+            "depart_dim_date_id", 
+            from_unixtime(df_cur_partition["depart_ts"], "yyyyMMdd")
+        ) \
+        .withColumn(
+            "depart_ts", 
+            to_timestamp((df_cur_partition["depart_ts"]))
+        ) \
+        .withColumn(
+            "arrival_dim_date_id", 
+            from_unixtime(df_cur_partition["arrival_ts"], "yyyyMMdd")
+        ) \
+        .withColumn(
+            "arrival_ts", 
+            to_timestamp((df_cur_partition["arrival_ts"]))
+        )
     df_cur_partition.show()
 
 

@@ -20,14 +20,14 @@ with DAG(
 ) as dag:
     ds = "{{ ds }}"     # DAG run date 
 
-    extract = SparkSubmitOperator(
-        task_id = "extract_opensky_api",
+    extract_flights = SparkSubmitOperator(
+        task_id = "extract_flights",
         application = "/opt/airflow/jobs/extract_flights.py",
         application_args = [
             "EDDF", 
             ds
         ],
-        py_files = "/dist/spark-jobs*.egg",
+        archives = "/dependencies/spark_jobs_dep.zip",
         retries = 5,
         retry_delay = 10
     )
@@ -38,4 +38,12 @@ with DAG(
         application_args = [ds]
     )
 
-    extract >> transform
+    load_dim_dates = SparkSubmitOperator(
+        task_id = "load_dim_dates",
+        application = "/opt/airflow/jobs/load_dim_dates.py",
+        py_files = "/dependencies/spark_jobs_dep.zip"
+    )
+    # load_dim_airports
+    # extract_dim_aircraft
+
+    extract_flights >> transform

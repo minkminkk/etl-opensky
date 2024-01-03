@@ -17,6 +17,7 @@ services:
       - ./logs/airflow:/opt/airflow/logs
       - ./src/dags:/opt/airflow/dags
       - ./src/jobs:/opt/airflow/jobs
+      - ./dependencies:/dependencies
       - ./data:/data
     depends_on:
       hdfs-namenode:
@@ -38,7 +39,6 @@ services:
     volumes:
       - ./logs/spark:/opt/bitnami/spark/logs
       - ./data:/data
-      - ./dist:/dist
 
   spark-worker:
     image: bitnami/spark:3.5

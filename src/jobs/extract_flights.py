@@ -14,25 +14,26 @@ import json
 # Globals
 AIRPORT_ICAO = "EDDF"
 DATE_FORMAT = "%Y-%m-%d"
-SRC_FLIGHTS_SCHEMA = StructType(
-    [
-        StructField("icao24", StringType(), nullable=False),
-        StructField("firstSeen", LongType()),
-        StructField("estDepartureAirport", StringType()),
-        StructField("lastSeen", LongType()),
-        StructField("estArrivalAirport", StringType()),
-        StructField("callsign", StringType()),
-        StructField("estDepartureAirportHorizDistance", IntegerType()),
-        StructField("estDepartureAirportVertDistance", IntegerType()),
-        StructField("estArrivalAirportHorizDistance", IntegerType()),
-        StructField("estArrivalAirportVertDistance", IntegerType()),
-        StructField("departureAirportCandidatesCount", ShortType()),
-        StructField("arrivalAirportCandidatesCount", ShortType()),
-    ]
-)
+SRC_FLIGHTS_SCHEMA = StructType([
+    StructField("icao24", StringType(), nullable = False),
+    StructField("firstSeen", LongType()),
+    StructField("estDepartureAirport", StringType()),
+    StructField("lastSeen", LongType()),
+    StructField("estArrivalAirport", StringType()),
+    StructField("callsign", StringType()),
+    StructField("estDepartureAirportHorizDistance", IntegerType()),
+    StructField("estDepartureAirportVertDistance", IntegerType()),
+    StructField("estArrivalAirportHorizDistance", IntegerType()),
+    StructField("estArrivalAirportVertDistance", IntegerType()),
+    StructField("departureAirportCandidatesCount", ShortType()),
+    StructField("arrivalAirportCandidatesCount", ShortType())
+])
 
-
-def main(airport: str, execution_date: datetime):
+# TODO: Check idempotency of data ingestion
+def main(
+    airport: str,
+    execution_date: datetime
+):
     """Extract data from OpenSky API, rename columns, and write data into HDFS.
     Partition by departureDate.
 
@@ -40,57 +41,59 @@ def main(airport: str, execution_date: datetime):
         airport [str]: ICAO24 address of airport (case-insensitive).
         execution_date [date - YYYY-MM-DD]: Date of data.
     """
-    data_path = "hdfs://namenode:8020/flights"
-    partition_path = (
-        data_path
-        + f"/year={execution_date.year}"
-        + f"/month={execution_date.month}"
+    data_path = "hdfs://namenode:8020/data_lake/flights"
+    partition_path = data_path \
+        + f"/year={execution_date.year}" \
+        + f"/month={execution_date.month}" \
         + f"/day={execution_date.day}"
-    )
-
-    spark = (
-        SparkSession.builder.appName("Data extraction from OpenSkyAPI")
-        .master("spark://spark-master:7077")
+    
+    spark = SparkSession.builder \
+        .appName("Data extraction from OpenSkyAPI") \
+        .master("spark://spark-master:7077") \
         .getOrCreate()
-    )
 
     # Read current data in partition to a DataFrame
     try:
-        df_cur_partition = spark.read.parquet(partition_path).drop(
-            "year", "month", "day"
-        )
+        df_cur_partition = spark.read.parquet(partition_path) \
+            .drop("year", "month", "day")
     except AnalysisException:
-        df_cur_partition = spark.createDataFrame([], schema=SRC_FLIGHTS_SCHEMA)
+        df_cur_partition = spark.createDataFrame([], schema = SRC_FLIGHTS_SCHEMA)
 
     # Extract data into another DataFrame
-    df_extract = spark.createDataFrame([], schema=SRC_FLIGHTS_SCHEMA)
+    df_extract = spark.createDataFrame([], schema = SRC_FLIGHTS_SCHEMA)
     for type in ["departure", "arrival"]:
         response = request_opensky(type, airport, execution_date)
         list_flights = process_response(response)
 
-        df = spark.createDataFrame(list_flights, schema=SRC_FLIGHTS_SCHEMA)
+        df = spark.createDataFrame(list_flights, schema = SRC_FLIGHTS_SCHEMA)
         df_extract = df_extract.unionByName(df)
-
+    
     # Calculate partitions - only append new data
-    df_extract = df_extract.subtract(df_cur_partition).withColumn(
-        "departure_ts", to_timestamp(from_unixtime(df_extract["firstSeen"]))
-    )
+    df_extract = df_extract \
+        .subtract(df_cur_partition) \
+        .withColumn(
+            "departure_ts", 
+            to_timestamp(from_unixtime(df_extract["firstSeen"]))
+        )
     # Split into another line to avoid conflict on firstSeen
-    df_extract = (
-        df_extract.withColumn("year", year(df_extract["departure_ts"]))
-        .withColumn("month", month(df_extract["departure_ts"]))
-        .withColumn("day", day(df_extract["departure_ts"]))
+    df_extract = df_extract \
+        .withColumn("year", year(df_extract["departure_ts"])) \
+        .withColumn("month", month(df_extract["departure_ts"])) \
+        .withColumn("day", day(df_extract["departure_ts"])) \
         .drop("departure_ts")
-    )
-
+    
     # Write into HDFS
-    df_extract.show()  # for log checking purposes
-    df_extract.write.partitionBy("year", "month", "day").parquet(
-        data_path, mode="append"
-    )
+    df_extract.show()     # for log checking purposes
+    df_extract.write \
+        .partitionBy("year", "month", "day") \
+        .parquet(data_path, mode = "append")
 
 
-def request_opensky(type: str, airport_icao: str, execution_date: datetime):
+def request_opensky(
+    type: str,
+    airport_icao: str,
+    execution_date: datetime
+):
     """Send requests to OpenSky API and return response.
 
     Args:
@@ -100,7 +103,7 @@ def request_opensky(type: str, airport_icao: str, execution_date: datetime):
         execution_date [datetime]: Date of data.
 
     Returns:
-        response [requests.Response]: Response from server
+        response [requests.Response]: Response from server 
             (checked for 4xx, 5xx code).
 
     Raises:
@@ -108,7 +111,7 @@ def request_opensky(type: str, airport_icao: str, execution_date: datetime):
     """
     # Input validation
     if type not in ("arrival", "departure"):
-        raise ValueError('"type" must be "arrival" or "departure".')
+        raise ValueError("\"type\" must be \"arrival\" or \"departure\".")
 
     # Warning if requested date range is larger than API limit
     if execution_date > datetime.today():
@@ -116,17 +119,16 @@ def request_opensky(type: str, airport_icao: str, execution_date: datetime):
 
     # Extract data from API
     start_ts = int(execution_date.timestamp())
-    end_ts = int((execution_date + timedelta(days=1)).timestamp())
+    end_ts = int((execution_date + timedelta(days = 1)).timestamp())
 
-    url = (
-        f"https://opensky-network.org/api/flights/{type}"
-        + f"?airport={airport_icao}"
-        + f"&begin={start_ts}"
+    url = f"https://opensky-network.org/api/flights/{type}" \
+        + f"?airport={airport_icao}" \
+        + f"&begin={start_ts}" \
         + f"&end={end_ts}"
-    )
 
     logging.info(
-        f"Extracting {type} data in " + f"{execution_date.strftime(DATE_FORMAT)}"
+        f"Extracting {type} data in " \
+        + f"{execution_date.strftime(DATE_FORMAT)}"
     )
     response = requests.get(url)
 
@@ -134,7 +136,7 @@ def request_opensky(type: str, airport_icao: str, execution_date: datetime):
     response.raise_for_status()
 
     return response
-
+    
 
 def process_response(response: requests.Response):
     """Process response (evaluate status code, parse response)
@@ -143,14 +145,14 @@ def process_response(response: requests.Response):
         response [requests.Response]: Response from server.
 
     Returns:
-        list_flights [List[dict]]: Data about extracted flight.
+        list_flights [List[dict]]: Data about extracted flight. 
             Generate 1 list per successful API call.
 
     Raises:
         Exception: When the response does not contain the expected JSON schema.
     """
     logging.info("Response:", response.content)
-    list_flights = json.loads(response.content)  # Into list of dicts
+    list_flights = json.loads(response.content) # Into list of dicts
 
     for name in SRC_FLIGHTS_SCHEMA.fieldNames():
         try:
@@ -160,17 +162,18 @@ def process_response(response: requests.Response):
             raise Exception("Unexpected response schema")
 
     return list_flights
-
+        
 
 if __name__ == "__main__":
     # Parse CLI arguments
     parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "airport",
-        help="airport to be investigated, "
-        + "input as ICAO24 address (4 case-insensitive hexadecimal letters)",
+    parser.add_argument("airport",
+        help = "airport to be investigated, " \
+            + "input as ICAO24 address (4 case-insensitive hexadecimal letters)"
     )
-    parser.add_argument("execution_date", help="date of data (in YYYY-MM-DD)")
+    parser.add_argument("execution_date",
+        help = "date of data (in YYYY-MM-DD)"
+    )
     args = parser.parse_args()
 
     # Specify timezone as UTC so that strptime can parse date strings into UTC
@@ -179,12 +182,15 @@ if __name__ == "__main__":
 
     # Preliminary input validation
     if len(args.airport) != 4:
-        raise ValueError('"airport" must be 4 letters.')
-
+        raise ValueError("\"airport\" must be 4 letters.")
+    
     try:
         args.execution_date = datetime.strptime(args.execution_date, DATE_FORMAT)
     except ValueError:
-        raise ValueError('"execution_date" must be in YYYY-MM-DD format.')
+        raise ValueError("\"execution_date\" must be in YYYY-MM-DD format.")
 
     # Call main function
-    main(airport=args.airport, execution_date=args.execution_date)
+    main(
+        airport = args.airport,
+        execution_date = args.execution_date
+    )
