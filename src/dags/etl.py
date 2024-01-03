@@ -22,7 +22,7 @@ with DAG(
 
     extract = SparkSubmitOperator(
         task_id = "extract_opensky_api",
-        application = "/opt/airflow/jobs/extract.py",
+        application = "/opt/airflow/jobs/extract_flights.py",
         application_args = [
             "EDDF", 
             ds

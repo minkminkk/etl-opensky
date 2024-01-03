@@ -24,6 +24,10 @@ SRC_FLIGHTS_SCHEMA = StructType([
 ])
 
 def main(execution_date: datetime):
+    """Transformation on extracted data
+    
+    
+    """
     data_path = "hdfs://namenode:8020/flights"
     partition_path = data_path \
         + f"/year={execution_date.year}" \
@@ -36,8 +40,22 @@ def main(execution_date: datetime):
         .enableHiveSupport() \
         .getOrCreate()
     
-    df = spark.read.parquet(partition_path)
-    df.show()
+    # Read current data
+    df_cur_partition = spark.read.parquet(partition_path) \
+        .select(
+            "icao24",
+            "firstSeen",
+            "estDepartureAirport",
+            "lastSeen",
+            "estArrivalAirport",
+            "callsign"
+        ) \
+        .withColumnRenamed("icao24", "aircraft_icao24") \
+        .withColumnRenamed("firstSeen", "depart_ts") \
+        .withColumnRenamed("estDepartureAirport", "depart_airport") \
+        .withColumnRenamed("lastSeen", "arrival_ts") \
+        .withColumnRenamed("estArrivalAirport", "arrival_airport")
+    df_cur_partition.show()
 
 
 if __name__ == "__main__":
