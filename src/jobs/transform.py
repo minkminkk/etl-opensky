@@ -28,7 +28,7 @@ def main(execution_date: datetime):
     
     
     """
-    data_path = "hdfs://namenode:8020/flights"
+    data_path = "hdfs://namenode:8020/data_lake/flights"
     partition_path = data_path \
         + f"/year={execution_date.year}" \
         + f"/month={execution_date.month}" \

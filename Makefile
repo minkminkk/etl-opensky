@@ -1,8 +1,17 @@
-setup: download_data.sh
-	bash ./scripts/download_data.sh \
-		&& mkdir -p ./logs/spark ./logs/airflow \
+# Setups
+download_data: download_data.sh
+	bash ./scripts/download_data.sh
+
+folders:
+	mkdir -p ./logs/spark/worker ./logs/airflow \
 		&& chmod a+rw -R ./logs
 
+setup: download_data folders
+	
+# pack_job_deps:
+# 	bash scripts/pack_job_deps.sh
+
+# Docker-compose related
 up:
 	docker compose up -d
 down:
@@ -12,13 +21,15 @@ start:
 stop:
 	docker compose stop
 
+# HDFS-related
 purge-fs:
 	docker exec etl-opensky-hdfs-namenode-1 hadoop fs -ls -C / | xargs /opt/hadoop/bin/hadoop fs -rm -R
 
+# DAG-related
 run_dag:
 	docker exec etl-opensky-airflow-1 airflow dags test flights_daily 2018-01-01T00:00:00+00:00
 
-run_extract:
+run_extract_flights:
 	docker exec etl-opensky-airflow-1 airflow tasks run flights_daily extract_flights scheduled__2018-01-01T00:00:00+00:00
 
 run_load_dim_dates:

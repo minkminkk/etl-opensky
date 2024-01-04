@@ -29,7 +29,6 @@ SRC_FLIGHTS_SCHEMA = StructType([
     StructField("arrivalAirportCandidatesCount", ShortType())
 ])
 
-# TODO: Check idempotency of data ingestion
 def main(
     airport: str,
     execution_date: datetime
@@ -38,8 +37,8 @@ def main(
     Partition by departureDate.
 
     Required command-line args:
-        airport [str]: ICAO24 address of airport (case-insensitive).
-        execution_date [date - YYYY-MM-DD]: Date of data.
+        airport: 4-letter ICAO24 address of airport (case-insensitive).
+        execution_date [YYYY-MM-DD]: Date of data.
     """
     data_path = "hdfs://namenode:8020/data_lake/flights"
     partition_path = data_path \
@@ -68,23 +67,30 @@ def main(
         df = spark.createDataFrame(list_flights, schema = SRC_FLIGHTS_SCHEMA)
         df_extract = df_extract.unionByName(df)
     
-    # Calculate partitions - only append new data
-    df_extract = df_extract \
+    # Compare current data with generated date data - skip task if identical
+    df_append = df_extract \
         .subtract(df_cur_partition) \
-        .withColumn(
-            "departure_ts", 
-            to_timestamp(from_unixtime(df_extract["firstSeen"]))
-        )
+
+    # If no data to append then skip to end of task 
+    if df_append.isEmpty():
+        logging.info(f"No new flights data for {execution_date.date}. Ending...")
+        return 0
+    
+    # Create partition
+    df_append = df.append.withColumn(
+        "departure_ts", 
+        to_timestamp(from_unixtime(df_append["firstSeen"]))
+    )
     # Split into another line to avoid conflict on firstSeen
-    df_extract = df_extract \
-        .withColumn("year", year(df_extract["departure_ts"])) \
-        .withColumn("month", month(df_extract["departure_ts"])) \
-        .withColumn("day", day(df_extract["departure_ts"])) \
+    df_append = df_append \
+        .withColumn("year", year(df_append["departure_ts"])) \
+        .withColumn("month", month(df_append["departure_ts"])) \
+        .withColumn("day", day(df_append["departure_ts"])) \
         .drop("departure_ts")
     
     # Write into HDFS
-    df_extract.show()     # for log checking purposes
-    df_extract.write \
+    df_append.show()     # for logging added data
+    df_append.write \
         .partitionBy("year", "month", "day") \
         .parquet(data_path, mode = "append")
 

@@ -7,7 +7,6 @@ from datetime import datetime
 
 default_args = {
     "start_date": datetime(2018, 1, 1),
-    "end_date": datetime(2020, 1, 1),
     "schedule": "@daily",
     "retries": 0
 }
@@ -23,11 +22,7 @@ with DAG(
     extract_flights = SparkSubmitOperator(
         task_id = "extract_flights",
         application = "/opt/airflow/jobs/extract_flights.py",
-        application_args = [
-            "EDDF", 
-            ds
-        ],
-        archives = "/dependencies/spark_jobs_dep.zip",
+        application_args = ["EDDF", ds],
         retries = 5,
         retry_delay = 10
     )
@@ -41,8 +36,10 @@ with DAG(
     load_dim_dates = SparkSubmitOperator(
         task_id = "load_dim_dates",
         application = "/opt/airflow/jobs/load_dim_dates.py",
-        py_files = "/dependencies/spark_jobs_dep.zip"
+        application_args = ["2018-01-01", "2028-01-01"]
     )
+
+    # TODO: Finished these tasks
     # load_dim_airports
     # extract_dim_aircraft
 

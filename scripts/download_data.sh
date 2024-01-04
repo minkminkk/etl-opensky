@@ -7,6 +7,7 @@ fi
 
 cd data
 
+echo "Checking aircraft data..."
 if ! [ -f ./aircraft-database-complete-2023-12.csv ];
 then
     echo "Aircraft database not available. Downloading..."
@@ -15,6 +16,7 @@ else
     echo "Aircraft database is already available."
 fi
 
+echo "Checking aircraft type data..."
 if ! [ -f ./doc8643AircraftTypes.csv ];
 then
     echo "Aircraft type data not available. Downloading..."
@@ -23,6 +25,7 @@ else
     echo "Aircraft type data is already available."
 fi
 
+echo "Checking manufacturer data..."
 if ! [ -f ./doc8643Manufacturers.csv ];
 then
     echo "Manufacturer data not available. Downloading..."
@@ -32,3 +35,4 @@ else
 fi
 
 cd ..
+echo "Finished downloading data for pipeline"
