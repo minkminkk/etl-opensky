@@ -14,10 +14,9 @@ services:
       context: ./containers/airflow
     env_file: ./containers/airflow/.env
     volumes:
-      - ./logs/airflow:/opt/airflow/logs
-      - ./src/dags:/opt/airflow/dags
-      - ./src/jobs:/opt/airflow/jobs
-      - ./dependencies:/dependencies
+      - ./containers/airflow/logs:/opt/airflow/logs
+      - ./containers/airflow/dags:/opt/airflow/dags
+      - ./containers/airflow/configs:/opt/airflow/configs
       - ./data:/data
     depends_on:
       hdfs-namenode:
@@ -52,8 +51,6 @@ services:
       - SPARK_LOCAL_STORAGE_ENCRYPTION_ENABLED=no
       - SPARK_SSL_ENABLED=no
       - SPARK_USER=spark
-    volumes:
-      - ./logs/spark/worker:/opt/bitnami/spark/work
 
   hdfs-namenode:
     <<: *hdfs-common

@@ -1,11 +1,13 @@
 #!/usr/bin/bash
 
-if ! [ -d data ];
+cur_dir=$(pwd)
+
+if ! [ -d $1 ];
 then
-    mkdir -p data
+    mkdir -p $1
 fi
 
-cd data
+cd $1
 
 echo "Checking aircraft data..."
 if ! [ -f ./aircraft-database-complete-2023-12.csv ];
@@ -34,5 +36,14 @@ else
     echo "Manufacturer data is already available."
 fi
 
-cd ..
+echo "Checking airport data..."
+if ! [ -f ./airports.json ];
+then
+    echo "Airport data not available. Downloading..."
+    curl https://www.flightradar24.com/_json/airports.php -o ./airports.json
+else
+    echo "Airport data is already available."
+fi
+
+cd $cur_dir
 echo "Finished downloading data for pipeline"

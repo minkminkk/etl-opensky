@@ -10,13 +10,15 @@ from pyspark.sql.functions import lit, date_format, \
     explode, sequence, to_date 
 from pyspark.errors.exceptions.captured import AnalysisException
 
-DATE_FORMAT = "%Y-%m-%d"
+from configs.general import DATE_FORMAT
+from configs.paths import SPARK_MASTER_URI, SPARK_SQL_WAREHOUSE_DIR
+
 
 def main(start_date: str, end_date: str):
     spark = SparkSession.builder \
         .appName("Load dates dimension table") \
-        .master("spark://spark-master:7077") \
-        .config("spark.sql.warehouse.dir", "hdfs://namenode:8020/data_warehouse") \
+        .master(SPARK_MASTER_URI) \
+        .config("spark.sql.warehouse.dir", SPARK_SQL_WAREHOUSE_DIR) \
         .enableHiveSupport() \
         .getOrCreate()
     

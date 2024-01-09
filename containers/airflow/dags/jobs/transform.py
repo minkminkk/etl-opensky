@@ -7,41 +7,30 @@ from pyspark.sql import SparkSession
 from pyspark.sql.types import *
 from pyspark.sql.functions import from_unixtime, to_timestamp, year, month, day
 
-DATE_FORMAT = "%Y-%m-%d"
-SRC_FLIGHTS_SCHEMA = StructType([
-    StructField("icao24", StringType(), nullable = False),
-    StructField("firstSeen", LongType()),
-    StructField("estDepartureAirport", StringType()),
-    StructField("lastSeen", LongType()),
-    StructField("estArrivalAirport", StringType()),
-    StructField("callsign", StringType()),
-    StructField("estDepartureAirportHorizDistance", IntegerType()),
-    StructField("estDepartureAirportVertDistance", IntegerType()),
-    StructField("estArrivalAirportHorizDistance", IntegerType()),
-    StructField("estArrivalAirportVertDistance", IntegerType()),
-    StructField("departureAirportCandidatesCount", ShortType()),
-    StructField("arrivalAirportCandidatesCount", ShortType())
-])
+from configs.general import DATE_FORMAT
+from configs.schemas import SRC_FLIGHTS_SCHEMA
+from configs.paths import SPARK_MASTER_URI, HDFS_URI_PREFIX
+
 
 def main(execution_date: datetime):
     """Transformation on extracted data
     
     
     """
-    data_path = "hdfs://namenode:8020/data_lake/flights"
-    partition_path = data_path \
+    data_uri = "hdfs://namenode:8020/data_lake/flights"
+    partition_uri = data_uri \
         + f"/year={execution_date.year}" \
         + f"/month={execution_date.month}" \
         + f"/day={execution_date.day}"
 
     spark = SparkSession.builder \
         .appName("Data transformation") \
-        .master("spark://spark-master:7077") \
+        .master(SPARK_MASTER_URI) \
         .enableHiveSupport() \
         .getOrCreate()
     
     # Read current data
-    df_cur_partition = spark.read.parquet(partition_path)
+    df_cur_partition = spark.read.parquet(partition_uri)
     
     # Filter & rename columns, parse ts into dates & times
     df_cur_partition = df_cur_partition \

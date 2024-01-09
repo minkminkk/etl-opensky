@@ -8,26 +8,12 @@ from pyspark.sql.types import *
 from pyspark.sql.functions import from_unixtime, to_timestamp, year, month, day
 from pyspark.errors.exceptions.captured import AnalysisException
 
-import requests
-import json
+from configs.general import DATE_FORMAT, AIRPORT_ICAO
+from configs.schemas import SRC_FLIGHTS_SCHEMA
+from configs.paths import SPARK_MASTER_URI, HDFS_URI_PREFIX
 
-# Globals
-AIRPORT_ICAO = "EDDF"
-DATE_FORMAT = "%Y-%m-%d"
-SRC_FLIGHTS_SCHEMA = StructType([
-    StructField("icao24", StringType(), nullable = False),
-    StructField("firstSeen", LongType()),
-    StructField("estDepartureAirport", StringType()),
-    StructField("lastSeen", LongType()),
-    StructField("estArrivalAirport", StringType()),
-    StructField("callsign", StringType()),
-    StructField("estDepartureAirportHorizDistance", IntegerType()),
-    StructField("estDepartureAirportVertDistance", IntegerType()),
-    StructField("estArrivalAirportHorizDistance", IntegerType()),
-    StructField("estArrivalAirportVertDistance", IntegerType()),
-    StructField("departureAirportCandidatesCount", ShortType()),
-    StructField("arrivalAirportCandidatesCount", ShortType())
-])
+import requests
+
 
 def main(
     airport: str,
@@ -40,20 +26,20 @@ def main(
         airport: 4-letter ICAO24 address of airport (case-insensitive).
         execution_date [YYYY-MM-DD]: Date of data.
     """
-    data_path = "hdfs://namenode:8020/data_lake/flights"
-    partition_path = data_path \
+    data_path = "data_lake/flights"
+    data_uri = f"{HDFS_URI_PREFIX}/{data_path}"
+    partition_uri = data_uri \
         + f"/year={execution_date.year}" \
         + f"/month={execution_date.month}" \
         + f"/day={execution_date.day}"
     
     spark = SparkSession.builder \
-        .appName("Data extraction from OpenSkyAPI") \
-        .master("spark://spark-master:7077") \
+        .master(SPARK_MASTER_URI) \
         .getOrCreate()
 
     # Read current data in partition to a DataFrame
     try:
-        df_cur_partition = spark.read.parquet(partition_path) \
+        df_cur_partition = spark.read.parquet(partition_uri) \
             .drop("year", "month", "day")
     except AnalysisException:
         df_cur_partition = spark.createDataFrame([], schema = SRC_FLIGHTS_SCHEMA)
@@ -68,8 +54,7 @@ def main(
         df_extract = df_extract.unionByName(df)
     
     # Compare current data with generated date data - skip task if identical
-    df_append = df_extract \
-        .subtract(df_cur_partition) \
+    df_append = df_extract.subtract(df_cur_partition)
 
     # If no data to append then skip to end of task 
     if df_append.isEmpty():
@@ -77,7 +62,7 @@ def main(
         return 0
     
     # Create partition
-    df_append = df.append.withColumn(
+    df_append = df_append.withColumn(
         "departure_ts", 
         to_timestamp(from_unixtime(df_append["firstSeen"]))
     )
@@ -92,7 +77,7 @@ def main(
     df_append.show()     # for logging added data
     df_append.write \
         .partitionBy("year", "month", "day") \
-        .parquet(data_path, mode = "append")
+        .parquet(data_uri, mode = "append")
 
 
 def request_opensky(
@@ -127,16 +112,14 @@ def request_opensky(
     start_ts = int(execution_date.timestamp())
     end_ts = int((execution_date + timedelta(days = 1)).timestamp())
 
-    url = f"https://opensky-network.org/api/flights/{type}" \
-        + f"?airport={airport_icao}" \
-        + f"&begin={start_ts}" \
-        + f"&end={end_ts}"
+    url = f"https://opensky-network.org/api/flights/{type}"
 
     logging.info(
-        f"Extracting {type} data in " \
-        + f"{execution_date.strftime(DATE_FORMAT)}"
+        f"Extracting {type} data in {execution_date.strftime(DATE_FORMAT)}"
     )
-    response = requests.get(url)
+    response = requests.get(
+        url, params = {"airport": airport_icao, "begin": start_ts, "end": end_ts}
+    )
 
     # Check for 4xx, 5xx status code
     response.raise_for_status()
@@ -157,15 +140,16 @@ def process_response(response: requests.Response):
     Raises:
         Exception: When the response does not contain the expected JSON schema.
     """
-    logging.info("Response:", response.content)
-    list_flights = json.loads(response.content) # Into list of dicts
+    # Parse JSON response
+    list_flights = response.json() # Into list of dicts
 
-    for name in SRC_FLIGHTS_SCHEMA.fieldNames():
-        try:
+    # Check response schema
+    try:
+        for name in SRC_FLIGHTS_SCHEMA.fieldNames():
             list_flights[0][name]
-        except KeyError or TypeError:
-            logging.error("Unexcepted response schema.")
-            raise Exception("Unexpected response schema")
+    except KeyError or TypeError:
+        logging.error("Unexcepted response schema.")
+        raise Exception("Unexpected response schema.")
 
     return list_flights
         
