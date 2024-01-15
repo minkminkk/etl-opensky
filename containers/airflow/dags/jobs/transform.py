@@ -7,9 +7,10 @@ from pyspark.sql import SparkSession
 from pyspark.sql.types import *
 from pyspark.sql.functions import from_unixtime, to_timestamp, year, month, day
 
-from configs.general import DATE_FORMAT
-from configs.schemas import SRC_FLIGHTS_SCHEMA
-from configs.paths import SPARK_MASTER_URI, HDFS_URI_PREFIX
+from configs import HDFSConfig, SparkConfig
+from config.general import DATE_FORMAT
+from config.schemas import SRC_FLIGHTS_SCHEMA
+from config.paths import SPARK_MASTER_URI, HDFS_URI_PREFIX
 
 
 def main(execution_date: datetime):
@@ -82,7 +83,7 @@ if __name__ == "__main__":
 
     # Preliminary input validation
     try:
-        args.execution_date = datetime.strptime(args.execution_date, DATE_FORMAT)
+        args.execution_date = datetime.strptime(args.execution_date, "%Y-%m-%d")
     except ValueError:
         raise ValueError("\"execution_date\" must be in YYYY-MM-DD format.")
 

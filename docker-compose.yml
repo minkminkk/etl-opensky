@@ -1,12 +1,25 @@
-# Customized from:
-# - bitnami/spark: https://raw.githubusercontent.com/bitnami/containers/main/bitnami/spark/docker-compose.yml
-# - apache/hadoop: https://hub.docker.com/r/apache/hadoop
-  
+# References:
+# bitnami/spark: https://raw.githubusercontent.com/bitnami/containers/main/bitnami/spark/docker-compose.yml
+# apache/hadoop: https://hub.docker.com/r/apache/hadoop
+# apache/hive: https://hive.apache.org/developement/quickstart/
+
 x-hdfs-common:
   &hdfs-common
   image: apache/hadoop:3
   env_file:
-    - ./containers/hdfs/hadoop.env
+    - ./containers/hadoop-hive/hadoop-hive.env
+
+
+x-hive-common:
+  &hive-common
+  image: apache/hive:4.0.0-beta-1
+  env_file:
+    - ./containers/hadoop-hive/hadoop-hive.env
+  environment:
+    - HIVE_CUSTOM_CONF_DIR=/opt/hive/conf/custom
+  volumes:
+    - ./containers/hadoop-hive/hive-site.xml:/opt/hive/conf/custom/hive-site.xml
+
 
 services:
   airflow:
@@ -14,9 +27,9 @@ services:
       context: ./containers/airflow
     env_file: ./containers/airflow/.env
     volumes:
-      - ./containers/airflow/logs:/opt/airflow/logs
       - ./containers/airflow/dags:/opt/airflow/dags
-      - ./containers/airflow/configs:/opt/airflow/configs
+      - ./containers/airflow/config:/opt/airflow/config
+      - ./logs/airflow:/opt/airflow/logs
       - ./data:/data
     depends_on:
       hdfs-namenode:
@@ -59,7 +72,7 @@ services:
     ports:
       - 9870:9870
     environment:
-      ENSURE_NAMENODE_DIR: "/tmp/hadoop-root/dfs/name"
+      - ENSURE_NAMENODE_DIR=/tmp/hadoop-hadoop/dfs/name
     healthcheck:
       test: ["CMD", "hdfs", "fsck", "/"]
       interval: 30s
@@ -70,3 +83,22 @@ services:
   hdfs-datanode:
     <<: *hdfs-common
     command: ["hdfs", "datanode"]
+
+  hive-server:
+    <<: *hive-common
+    environment:
+      - SERVICE_NAME=hiveserver2
+    depends_on:
+      - hdfs-namenode
+      - hdfs-datanode
+    ports:
+      - 10000:10000
+      - 10002:10002
+  
+  hive-metastore:
+    <<: *hive-common
+    environment:
+      - SERVICE_NAME=metastore
+    ports:
+      - 9083:9083
+      

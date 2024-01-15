@@ -1,0 +1,24 @@
+<property>
+  <name>hive.execution.engine</name>
+  <value>spark</value>
+</property>
+
+<property>
+  <name>hive.metastore.uris</name>
+  <value>thrift://hive-metastore:9083</value>
+</property>
+
+<property>
+  <name>hive.metastore.warehouse.dir</name>
+  <value>hdfs://namenode:8020/data_warehouse</value>
+</property>
+
+<property>
+  <name>hive.exec.dynamic.partition</name>
+  <value>True</value>
+</property>
+
+<property>
+  <name>hive.exec.dynamic.partition.mode</name>
+  <value>nonstrict</value>
+</property>

@@ -3,22 +3,22 @@ import logging
 import argparse
 from datetime import datetime, timedelta
 
-from pyspark.sql import SparkSession, Row
+from configs import SparkConfig
+
+from pyspark.sql import SparkSession, DataFrame
 from pyspark.sql.types import *
-from pyspark.sql.functions import lit, date_format, \
-    year, month, day, weekofyear, dayofweek, \
-    explode, sequence, to_date 
 from pyspark.errors.exceptions.captured import AnalysisException
 
-from configs.general import DATE_FORMAT
-from configs.paths import SPARK_MASTER_URI, SPARK_SQL_WAREHOUSE_DIR
 
+def main(start_date: str, end_date: str) -> None:
+    # Get configs
+    spark_conf = SparkConfig()
 
-def main(start_date: str, end_date: str):
+    # Create SparkSession
     spark = SparkSession.builder \
         .appName("Load dates dimension table") \
-        .master(SPARK_MASTER_URI) \
-        .config("spark.sql.warehouse.dir", SPARK_SQL_WAREHOUSE_DIR) \
+        .master(spark_conf.uri) \
+        .config("spark.sql.warehouse.dir", spark_conf.sql_warehouse_dir) \
         .enableHiveSupport() \
         .getOrCreate()
     
@@ -38,13 +38,13 @@ def main(start_date: str, end_date: str):
     df_cur = spark.sql("SELECT * FROM dim_dates;")
 
     # Populate date data 
-    df_dates = populate_date_df(spark, start_date, end_date)
+    df_dates = populate_date_df(start_date, end_date)
 
     # Compare current data with generated date data - skip task if identical
     df_append = df_dates.subtract(df_cur)
     if df_append.isEmpty():
         logging.info(f"Data has already loaded. Ending...")
-        return 0
+        return
     
     # Write into DWH
     df_append.show()        # for logging added data
@@ -54,21 +54,10 @@ def main(start_date: str, end_date: str):
         .saveAsTable("dim_dates")
         
 
-def populate_date_df(
-    spark: SparkSession, 
-    start_date: str, 
-    end_date: str
-):
-    """Populate calendar date from start_date to end_date.
+def populate_date_df(start_date: str, end_date: str) -> DataFrame:
+    """Populate calendar date from start_date to end_date"""
+    spark = SparkSession.getActiveSession()
 
-    Args:
-        spark [pyspark.sql.SparkSession]: SparkSession object.
-        start_date [str]: Start date to populate (YYYY-MM-DD).
-        end_date [str]: End date to populate (YYYY-MM-DD).
-
-    Returns:
-        df_dates [pyspark.sql.DataFrame]: Calendar date DataFrame.
-    """
     # Reference
     # (https://3cloudsolutions.com/resources/generate-a-calendar-dimension-in-spark/)
     spark.sql(f"""
@@ -113,10 +102,11 @@ if __name__ == "__main__":
 
     # Preliminary input validation
     try:
-        datetime.strptime(args.start_date, DATE_FORMAT)
-        datetime.strptime(args.end_date, DATE_FORMAT)
+        datetime.strptime(args.start_date, "%Y-%m-%d")
+        datetime.strptime(args.end_date, "%Y-%m-%d")
     except ValueError:
-        raise ValueError("\"execution_date\" must be in YYYY-MM-DD format.")
+        logging.error("\"execution_date\" must be in YYYY-MM-DD format.")
+        raise
 
     # Call main function
     main(start_date = args.start_date, end_date = args.end_date)

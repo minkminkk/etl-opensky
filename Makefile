@@ -1,7 +1,7 @@
 # Setups
-airflow_dir = ./containers/airflow
-airflow_log_dir = $(airflow_dir)/logs
-data_dir = $(airflow_dir)/data
+airflow_dir=./containers/airflow
+airflow_log_dir=./logs/airflow
+data_dir=./data
 repo_folders:
 	mkdir -p $(airflow_log_dir) $(data_dir) \
 		&& sudo chmod a+rw -R $(airflow_log_dir) $(data_dir)
@@ -30,9 +30,9 @@ purge-fs:
 	docker exec etl-opensky-hdfs-namenode-1 hadoop fs -ls -C / | xargs /opt/hadoop/bin/hadoop fs -rm -R
 
 # DAG-related
-execution_date = 2018-01-01T00:00:00+00:00
-dag_id = flights_daily
-dag_run_id = manual__$(execution_date)
+execution_date=2018-01-01T00:00:00+00:00
+dag_id=flights_daily
+dag_run_id=manual__$(execution_date)
 
 clear_states:
 	docker exec etl-opensky-airflow-1 airflow tasks clear -y $(dag_id)
