@@ -25,7 +25,7 @@ services:
   airflow:
     build: 
       context: ./containers/airflow
-    env_file: ./containers/airflow/.env
+    env_file: ./containers/airflow/airflow.env
     volumes:
       - ./containers/airflow/dags:/opt/airflow/dags
       - ./containers/airflow/config:/opt/airflow/config
@@ -39,31 +39,15 @@ services:
 
   spark-master:
     image: bitnami/spark:3.5
-    environment:
-      - SPARK_MODE=master
-      - SPARK_RPC_AUTHENTICATION_ENABLED=no
-      - SPARK_RPC_ENCRYPTION_ENABLED=no
-      - SPARK_LOCAL_STORAGE_ENCRYPTION_ENABLED=no
-      - SPARK_SSL_ENABLED=no
-      - SPARK_USER=spark
+    env_file: ./containers/spark/spark-master.env
     ports:
       - '8088:8080'
     volumes:
-      - ./logs/spark:/opt/bitnami/spark/logs
       - ./data:/data
 
   spark-worker:
     image: bitnami/spark:3.5
-    environment:
-      - SPARK_MODE=worker
-      - SPARK_MASTER_URL=spark://spark-master:7077
-      - SPARK_WORKER_MEMORY=1G
-      - SPARK_WORKER_CORES=1
-      - SPARK_RPC_AUTHENTICATION_ENABLED=no
-      - SPARK_RPC_ENCRYPTION_ENABLED=no
-      - SPARK_LOCAL_STORAGE_ENCRYPTION_ENABLED=no
-      - SPARK_SSL_ENABLED=no
-      - SPARK_USER=spark
+    env_file: ./containers/spark/spark-worker.env
 
   hdfs-namenode:
     <<: *hdfs-common
@@ -86,6 +70,8 @@ services:
 
   hive-server:
     <<: *hive-common
+    volumes:
+      - ./logs/hiveserver:/tmp/hive/
     environment:
       - SERVICE_NAME=hiveserver2
     depends_on:

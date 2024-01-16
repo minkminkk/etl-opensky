@@ -10,10 +10,10 @@ fi
 cd $1
 
 echo "Checking aircraft data..."
-if ! [ -f ./aircraft-database-complete-2023-12.csv ];
+if ! [ -f ./aircraft-database-complete-2024-01.csv ];
 then
     echo "Aircraft database not available. Downloading..."
-    wget https://opensky-network.org/datasets/metadata/aircraft-database-complete-2023-12.csv
+    wget https://opensky-network.org/datasets/metadata/aircraft-database-complete-2024-01.csv
 else
     echo "Aircraft database is already available."
 fi

@@ -1,8 +1,9 @@
 from airflow import DAG
-from airflow.decorators import task
-from airflow.providers.http.operators.http import SimpleHttpOperator
+from airflow.decorators.task_group import task_group
+from airflow.operators.python import PythonOperator
 from airflow.providers.apache.spark.operators.spark_submit \
     import SparkSubmitOperator
+from airflow.exceptions import AirflowSkipException
 
 import pendulum
 import logging
@@ -22,7 +23,6 @@ with DAG(
 ) as dag:
     from configs import GeneralConfig, AirflowConfig, \
         HDFSConfig, WebHDFSConfig, SparkConfig
-    from utils import webhdfs
 
     # Get template fields
     ds = "{{ ds }}"
@@ -52,22 +52,58 @@ with DAG(
         retry_delay = 10
     )
 
-    @task(task_id = "ingest_airports_from_local")
-    def ingest_airports(hdfs_path: str):
-        """Upload airports.json from local to HDFS. Skip if already uploaded."""
-        
-        # Check if file already exists in HDFS
-        if webhdfs.file_exists(hdfs_path):
-            logging.info("File already exists in HDFS. Task finished.")
-            return 0
-        
-        # If not exists, upload file
-        logging.info("Uploading data from local to HDFS.")
-        local_path = "/data/airports.json"
 
-        with open(local_path, "r") as file:
-            webhdfs.upload(file, hdfs_path, overwrite = True)
-    ingest_airports("/data_lake/airports.json")
+    def upload_to_data_lake(
+            local_path: str, 
+            hdfs_path: str, 
+            skips: bool = False
+        ) -> None:
+        """Upload file from local to data lake. Skip if remote file exists."""
+        # Manual skip
+        if skips:
+            raise AirflowSkipException
+        
+        # Actual implementation with skip based on condition
+        from utils import webhdfs
+
+        logging.info("Uploading data from local to data lake.")
+        with open(local_path, "rb") as file:
+            try:
+                webhdfs.upload(file, hdfs_path, overwrite = False)
+            except FileExistsError:
+                raise AirflowSkipException
+
+
+    @task_group(
+        group_id = "ingest_from_local",
+        prefix_group_id = False,
+        default_args = {"python_callable": upload_to_data_lake}
+    )   # Visual grouping purpose
+    def upload_local():
+        from utils import webhdfs
+
+        hdfs_dir_path = "/data_lake"
+        cur_files = webhdfs.list_files(hdfs_dir_path)
+        file_task_id_template = {
+            "airports.json": "airports",
+            "aircraft-database-complete-2024-01.csv": "aircrafts",
+            "doc8643AircraftTypes.csv": "aircraft_types",
+            "doc8643Manufacturers.csv": "manufacturers"
+        }
+
+        for file in file_task_id_template.keys():
+            task_id_templated = file_task_id_template[file]
+            params = {
+                "local_path": f"/data/{file}",
+                "hdfs_path": f"/data_lake/{file}",
+                "skips": file in cur_files
+            }
+            
+            PythonOperator(
+                task_id = f"upload_{task_id_templated}_data", 
+                op_kwargs = params
+            )
+    upload_local()
 
 
     # extract_airports = SparkSubmitOperator(
