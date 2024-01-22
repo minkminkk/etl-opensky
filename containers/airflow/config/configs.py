@@ -1,9 +1,7 @@
 """File for DAGs related configs"""
 
 import os
-from datetime import datetime
-from pyspark.sql.types import StructType, StructField, \
-    ShortType, IntegerType, LongType, StringType
+from pyspark.sql.types import *
 
 
 class GeneralConfig:
@@ -58,26 +56,85 @@ class WebHDFSConfig(ServiceConfig):
 class SparkSchema:
     """Contains PySpark schemas used in DAGs"""
     def __init__(self):
-        self.src_flights = StructType([
-            StructField("icao24", StringType(), nullable = False),
-            StructField("firstSeen", LongType()),
-            StructField("estDepartureAirport", StringType()),
-            StructField("lastSeen", LongType()),
-            StructField("estArrivalAirport", StringType()),
-            StructField("callsign", StringType()),
-            StructField("estDepartureAirportHorizDistance", IntegerType()),
-            StructField("estDepartureAirportVertDistance", IntegerType()),
-            StructField("estArrivalAirportHorizDistance", IntegerType()),
-            StructField("estArrivalAirportVertDistance", IntegerType()),
-            StructField("departureAirportCandidatesCount", ShortType()),
-            StructField("arrivalAirportCandidatesCount", ShortType())
-        ])
+        # Source schema expected for flights data from OpenSky API
+        self.src_flights = StructType(
+            [
+                StructField("icao24", StringType(), nullable = False),
+                StructField("firstSeen", LongType()),
+                StructField("estDepartureAirport", StringType()),
+                StructField("lastSeen", LongType()),
+                StructField("estArrivalAirport", StringType()),
+                StructField("callsign", StringType()),
+                StructField("estDepartureAirportHorizDistance", IntegerType()),
+                StructField("estDepartureAirportVertDistance", IntegerType()),
+                StructField("estArrivalAirportHorizDistance", IntegerType()),
+                StructField("estArrivalAirportVertDistance", IntegerType()),
+                StructField("departureAirportCandidatesCount", ShortType()),
+                StructField("arrivalAirportCandidatesCount", ShortType())
+            ]
+        )
+        # Source schema expected from local files
+        self.src_airports = StructType(
+            [
+                StructField("name", StringType()),
+                StructField("iata", StringType()),
+                StructField("icao", StringType()),
+                StructField("country", StringType()),
+                StructField("lat", FloatType()),
+                StructField("lon", FloatType()),
+                StructField("alt", ShortType())
+            ]
+        )
+        self.src_airlines = StructType(
+            [
+                StructField("Name", StringType()),
+                StructField("Code", StringType()),
+                StructField("ICAO", StringType())
+            ]
+        )
+        self.src_aircrafts = StructType(
+            [
+                StructField("icao24_addr", StringType()),
+                StructField("registration", StringType()),
+                StructField("manufacturer_code", StringType()),
+                StructField("manufacturer_name", StringType()),
+                StructField("model", StringType()),
+                StructField("icao_designator", StringType()),
+                StructField("serial_num", StringType()),
+                StructField("line_num", StringType()),
+                StructField("icao_type", StringType()),
+                StructField("operator_name", StringType()),
+                StructField("operator_callsign", StringType()),
+                StructField("operator_icao", StringType()),
+                StructField("operator_iata", StringType()),
+                StructField("owner", StringType()),
+                StructField("note", StringType())
+            ]
+        )
+        self.src_aircraft_types = StructType(
+            [
+                StructField("AircraftDescription", StringType()),
+                StructField("Description", StringType()),
+                StructField("Designator", StringType()),
+                StructField("EngineCount", ByteType()),
+                StructField("EngineType", StringType()),
+                StructField("ManufacturerCode", StringType()),
+                StructField("ModelFullName", StringType()),
+                StructField("WTC", StringType())
+            ]
+        )
+        self.src_manufacturers = StructType(
+            [
+                StructField("Code", StringType()),
+                StructField("Name", StringType())
+            ]
+        )
 
 
 class SparkConfig(ServiceConfig):
     def __init__(self):
         super().__init__("spark", "spark-master", 7077)
-        self.schemas = SparkSchema()
+        self.schema = SparkSchema()
 
         # Default warehouse dir: ${HDFS_URI}/data_warehouse    
         self.sql_warehouse_dir = f"{HDFSConfig().uri}/data_warehouse"
@@ -109,6 +166,3 @@ class AirflowPath:
 class AirflowConfig:
     def __init__(self):
         self.path = AirflowPath()
-
-
-print("thif")

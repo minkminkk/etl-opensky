@@ -45,5 +45,14 @@ else
     echo "Airport data is already available."
 fi
 
+echo "Checking airlines data..."
+if ! [ -f ./airlines.json ];
+then
+    echo "Airline data not available. Downloading..."
+    curl https://www.flightradar24.com/_json/airlines.php -o ./airlines.json
+else
+    echo "Airline data is already available."
+fi
+
 cd $cur_dir
-echo "Finished downloading data for pipeline"
+echo "Finished downloading data for pipeline."

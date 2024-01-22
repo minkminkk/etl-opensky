@@ -1,13 +1,12 @@
+import argparse
+from datetime import datetime
 import os
 import logging
-import argparse
-from datetime import datetime, timedelta
-
-from configs import SparkConfig
 
 from pyspark.sql import SparkSession, DataFrame
 from pyspark.sql.types import *
-from pyspark.errors.exceptions.captured import AnalysisException
+
+from configs import SparkConfig
 
 
 def main(start_date: str, end_date: str) -> None:
@@ -16,16 +15,14 @@ def main(start_date: str, end_date: str) -> None:
 
     # Create SparkSession
     spark = SparkSession.builder \
-        .appName("Load dates dimension table") \
         .master(spark_conf.uri) \
         .config("spark.sql.warehouse.dir", spark_conf.sql_warehouse_dir) \
         .enableHiveSupport() \
         .getOrCreate()
     
     # Create table if not exists
-    # (https://spark.apache.org/docs/latest/sql-data-sources-hive-tables.html)
     spark.sql("""CREATE TABLE IF NOT EXISTS dim_dates (
-        date_dim_id INT,
+        date_dim_id INTEGER,
         date DATE,
         year SMALLINT,
         month TINYINT,
@@ -35,19 +32,26 @@ def main(start_date: str, end_date: str) -> None:
     ) USING hive;""")
 
     # Get current data in date table
-    df_cur = spark.sql("SELECT * FROM dim_dates;")
+    df_cur = spark.sql(f"SELECT * FROM dim_dates WHERE \
+        date BETWEEN '{start_date}' AND '{end_date}';")
+    expected_num_rows = spark.sql(
+        f"SELECT DATE_DIFF('{end_date}', '{start_date}') + 1 AS cnt;"
+    ).collect()[0]["cnt"]
+
+    print(df_cur.count(), expected_num_rows)
+    # Compare current data with expected - skip task if already have
+    if df_cur.count() == expected_num_rows:
+        print(f"Data has already fully loaded. Ending...")
+        return "skipped"
 
     # Populate date data 
     df_dates = populate_date_df(start_date, end_date)
 
-    # Compare current data with generated date data - skip task if identical
+    # Data to append
     df_append = df_dates.subtract(df_cur)
-    if df_append.isEmpty():
-        logging.info(f"Data has already loaded. Ending...")
-        return
+    df_append.show(10)        # for logging added data
     
     # Write into DWH
-    df_append.show()        # for logging added data
     df_append.write \
         .mode("append") \
         .format("hive") \
@@ -105,8 +109,8 @@ if __name__ == "__main__":
         datetime.strptime(args.start_date, "%Y-%m-%d")
         datetime.strptime(args.end_date, "%Y-%m-%d")
     except ValueError:
-        logging.error("\"execution_date\" must be in YYYY-MM-DD format.")
-        raise
+        logging.error("\"start_date\", \"end_date\" must be YYYY-MM-DD.")
+        raise ValueError("Invalid input dates.")
 
     # Call main function
     main(start_date = args.start_date, end_date = args.end_date)

@@ -10,7 +10,7 @@ download_data: repo_folders
 	bash ./scripts/download_data.sh $(data_dir)
 hdfs_folders:
 	docker exec etl-opensky-hdfs-namenode-1 hdfs dfs \
-		-mkdir -p /data_lake/airports /data_lake/flights /data_warehouse
+		-mkdir -p /data_lake/flights /data_warehouse
 setup: repo_folders download_data
 	
 # pack_job_deps:
@@ -35,6 +35,8 @@ execution_date=2018-01-01T00:00:00+00:00
 dag_id=flights_daily
 dag_run_id=manual__$(execution_date)
 
+airflow_shell:
+	docker exec -it etl-opensky-airflow-1 /bin/bash
 clear_states:
 	docker exec etl-opensky-airflow-1 airflow tasks clear -y $(dag_id)
 run_dag:

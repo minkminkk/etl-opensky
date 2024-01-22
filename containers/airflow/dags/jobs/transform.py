@@ -1,39 +1,35 @@
-import os
-import logging
 import argparse
-from datetime import datetime, timedelta
+from datetime import datetime
+import os
 
 from pyspark.sql import SparkSession
 from pyspark.sql.types import *
-from pyspark.sql.functions import from_unixtime, to_timestamp, year, month, day
+import pyspark.sql.functions as F
 
 from configs import HDFSConfig, SparkConfig
-from config.general import DATE_FORMAT
-from config.schemas import SRC_FLIGHTS_SCHEMA
-from config.paths import SPARK_MASTER_URI, HDFS_URI_PREFIX
 
 
-def main(execution_date: datetime):
-    """Transformation on extracted data
-    
-    
-    """
-    data_uri = "hdfs://namenode:8020/data_lake/flights"
-    partition_uri = data_uri \
+def main(execution_date: datetime) -> None:
+    """Transformation on flights data"""
+    # Get configs
+    HDFS_CONF = HDFSConfig()
+    SPARK_CONF = SparkConfig()
+    partition_uri = HDFS_CONF.uri \
         + f"/year={execution_date.year}" \
         + f"/month={execution_date.month}" \
         + f"/day={execution_date.day}"
 
+    # Create SparkSession
     spark = SparkSession.builder \
-        .appName("Data transformation") \
-        .master(SPARK_MASTER_URI) \
+        .master(SPARK_CONF.uri) \
+        .config("spark.sql.warehouse.dir", SPARK_CONF.sql_warehouse_dir) \
         .enableHiveSupport() \
         .getOrCreate()
     
     # Read current data
     df_cur_partition = spark.read.parquet(partition_uri)
     
-    # Filter & rename columns, parse ts into dates & times
+    # Filter & rename columns
     df_cur_partition = df_cur_partition \
         .select(
             "icao24",
@@ -43,30 +39,31 @@ def main(execution_date: datetime):
             "estArrivalAirport",
             "callsign"
         ) \
-        .withColumnRenamed("icao24", "aircraft_icao24") \
-        .withColumnRenamed("firstSeen", "depart_ts") \
-        .withColumnRenamed("estDepartureAirport", "depart_airport") \
-        .withColumnRenamed("lastSeen", "arrival_ts") \
-        .withColumnRenamed("estArrivalAirport", "arrival_airport")
-    
-    df_cur_partition = df_cur_partition \
-        .withColumn(
-            "depart_dim_date_id", 
-            from_unixtime(df_cur_partition["depart_ts"], "yyyyMMdd")
-        ) \
-        .withColumn(
-            "depart_ts", 
-            to_timestamp((df_cur_partition["depart_ts"]))
-        ) \
-        .withColumn(
-            "arrival_dim_date_id", 
-            from_unixtime(df_cur_partition["arrival_ts"], "yyyyMMdd")
-        ) \
-        .withColumn(
-            "arrival_ts", 
-            to_timestamp((df_cur_partition["arrival_ts"]))
+        .withColumnsRenamed(
+            {
+                "icao24": "aircraft_icao24",
+                "firstSeen": "depart_ts",
+                "estDepartureAirport": "depart_airport",
+                "lastSeen": "arrival_ts",
+                "estArrivalAirport": "arrival_airport",
+            }
         )
-    df_cur_partition.show()
+    
+    # Calculate dates and timestamps
+    df_cur_partition = df_cur_partition \
+        .withColumns(
+            {
+                "depart_ts": F.timestamp_seconds(df_cur_partition["depart_ts"]),
+                "arrival_ts": F.timestamp_seconds(df_cur_partition["arrival_ts"]),
+                "depart_dim_date_id": F.to_date(
+                    df_cur_partition["depart_ts"], "yyyyMMdd"
+                ),
+                "arrival_dim_date_id": F.to_date(
+                    df_cur_partition["arrival_ts"], "yyyyMMdd"
+                )
+            }
+        )
+    df_cur_partition.show(10)
 
 
 if __name__ == "__main__":

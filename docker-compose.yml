@@ -17,6 +17,9 @@ x-hive-common:
     - ./containers/hadoop-hive/hadoop-hive.env
   environment:
     - HIVE_CUSTOM_CONF_DIR=/opt/hive/conf/custom
+  depends_on:
+  - hdfs-namenode
+  - hdfs-datanode
   volumes:
     - ./containers/hadoop-hive/hive-site.xml:/opt/hive/conf/custom/hive-site.xml
 
@@ -31,9 +34,6 @@ services:
       - ./containers/airflow/config:/opt/airflow/config
       - ./logs/airflow:/opt/airflow/logs
       - ./data:/data
-    depends_on:
-      hdfs-namenode:
-        condition: service_healthy
     ports:
       - "8080:8080"
 
@@ -74,9 +74,6 @@ services:
       - ./logs/hiveserver:/tmp/hive/
     environment:
       - SERVICE_NAME=hiveserver2
-    depends_on:
-      - hdfs-namenode
-      - hdfs-datanode
     ports:
       - 10000:10000
       - 10002:10002

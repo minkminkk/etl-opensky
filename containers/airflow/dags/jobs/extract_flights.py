@@ -1,14 +1,13 @@
-import logging
-from typing import Any, Callable
 import argparse
 from datetime import date
-
-from configs import SparkConfig, HDFSConfig
+from typing import Any, Callable
+import logging
 
 from pyspark.sql import SparkSession
-from pyspark.sql.types import StructType
-from pyspark.sql.functions import from_unixtime, to_timestamp, year, month, day
+import pyspark.sql.functions as F
 from pyspark.errors.exceptions.captured import AnalysisException
+
+from configs import SparkConfig, HDFSConfig
 
 import requests
 
@@ -16,37 +15,27 @@ import requests
 def main(airport_icao: str, start_ts: int, end_ts: int) -> None:
     """Ingest extracted data from OpenSky API to data lake"""
     # Get configs
-    spark_conf = SparkConfig()
-    hdfs_conf = HDFSConfig()
+    HDFS_CONF = HDFSConfig()
+    SPARK_CONF = SparkConfig()
 
     # Create SparkSession
     spark = SparkSession.builder \
-        .master(spark_conf.uri) \
+        .master(SPARK_CONF.uri) \
         .getOrCreate()
 
     # Get HDFS URI of current partition
     execution_date = date.fromtimestamp(start_ts)
     data_path = "/data_lake/flights"
-    data_uri = hdfs_conf.uri + data_path
+    data_uri = HDFS_CONF.uri + data_path
     partition_uri = data_uri \
         + f"/year={execution_date.year}" \
         + f"/month={execution_date.month}" \
         + f"/day={execution_date.day}"
 
-    # Read current data in partition to a DataFrame
-    try:
-        df_cur_partition = spark.read.parquet(partition_uri) \
-            .drop("year", "month", "day")
-    except AnalysisException:   # In case partition empty
-        df_cur_partition = spark.createDataFrame(
-            [], 
-            schema = spark_conf.schemas.src_flights
-        )
-
-    # Extract data into another DataFrame
+    # Extract data into DataFrame
     df_extract = spark.createDataFrame(
         [], 
-        schema = spark_conf.schemas.src_flights
+        schema = SPARK_CONF.schema.src_flights
     )
     for type in ["departure", "arrival"]:
         response = request_opensky(type, airport_icao, start_ts, end_ts)
@@ -58,32 +47,42 @@ def main(airport_icao: str, start_ts: int, end_ts: int) -> None:
 
         df = spark.createDataFrame(
             list_flights, 
-            schema = spark_conf.schemas.src_flights
+            schema = SPARK_CONF.schema.src_flights
         )
         df_extract = df_extract.unionByName(df)
-    
-    # Compare current data with generated date data
-    df_append = df_extract.subtract(df_cur_partition)
 
-    # If no data to append then skip to end of task 
-    if df_append.isEmpty():
-        logging.info(f"No new flights data for {execution_date}. Ending...")
-        return
+    # Read current data in partition to another DataFrame
+    try:
+        df_cur_partition = spark.read.parquet(partition_uri) \
+            .drop("year", "month", "day")
+    except AnalysisException:   # In case partition empty
+        df_cur_partition = spark.createDataFrame(
+            [], 
+            schema = SPARK_CONF.schema.src_flights
+        )
+    
+    # If no new data to append then end task 
+    if df_cur_partition.count() == df_extract.count():
+        print(f"No new flights data for {execution_date}. Ending...")
+        return "skipped"
     
     # Create partition columns
+    df_append = df_extract.subtract(df_cur_partition)
     df_append = df_append.withColumn(
         "departure_ts", 
-        to_timestamp(from_unixtime(df_append["firstSeen"]))
+        F.to_timestamp(F.from_unixtime(df_append["firstSeen"]))
     )
     # Split into another line to avoid conflict on firstSeen
-    df_append = df_append \
-        .withColumn("year", year(df_append["departure_ts"])) \
-        .withColumn("month", month(df_append["departure_ts"])) \
-        .withColumn("day", day(df_append["departure_ts"])) \
-        .drop("departure_ts")
+    df_append = df_append.withColumns(
+        {
+            "year": F.year(df_append["departure_ts"]),
+            "month": F.month(df_append["departure_ts"]),
+            "day": F.day(df_append["departure_ts"])
+        }
+    ).drop("departure_ts")
     
     # Write into HDFS
-    df_append.show()     # for logging added data
+    df_append.show(10)     # for logging added data
     df_append.write \
         .partitionBy("year", "month", "day") \
         .parquet(data_uri, mode = "append")
