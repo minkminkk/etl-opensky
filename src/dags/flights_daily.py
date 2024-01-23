@@ -98,25 +98,25 @@ with DAG(
             )
 
 
+    # TODO: Separate transform and load task and add data check task 
     """Create Hive tables in data warehouse"""
-    with open(AIRFLOW_CONF.path.dags + "/hql/create_tables.hql", "r") as file:
-        create_hql_tbls = HiveOperator(
-            task_id = "create_hql_tbls",
-            hql = file.read(),
-            run_as_owner = True
-        )
-    
+    create_hive_tbls = SparkSubmitOperator(
+        task_id = "create_hive_tbls",
+        name = "Create Hive tables in data warehouse",
+        application = f"{AIRFLOW_CONF.path.jobs}/create_hive_tbls.py",
+        py_files = default_py_files
+    )
 
-    # transform = SparkSubmitOperator(
-    #     task_id = "transform",
-    #     name = "Transform flights data",
-    #     application = f"{AIRFLOW_CONF.path.jobs}/transform.py",
-    #     application_args = [ds],
-    #     py_files = default_py_files
-    # )
+    # TODO: Check later (not urgent)
+    # with open(AIRFLOW_CONF.path.dags + "/hql/create_hive_tbls.hql", "r") as file:
+    #     create_hive_tables = HiveOperator(
+    #         task_id = "create_hive_tables",
+    #         hql = file.read(),
+    #         run_as_owner = True
+    #     )
 
 
-    """Load dimension tables to data warehouse"""
+    """Transform and load dimension tables to data warehouse"""
     @task_group(
         group_id = "load_dim_tables",
         default_args = {
@@ -144,7 +144,15 @@ with DAG(
         )
 
 
+    """Transform and load fact table to data warehouse"""
+    load_fct_flights = SparkSubmitOperator(
+        task_id = "load_fct_flights",
+        name = "Transform and load flights data to data warehouse",
+        application = f"{AIRFLOW_CONF.path.jobs}/load_fct_flights.py",
+        application_args = [ds],
+        py_files = default_py_files
+    )
+
+
     """Task dependencies"""
-    [upload_local(), create_hql_tbls] >> load_dim_tables()
-    # extract_flights >> transform
-    
+    [upload_local(), create_hive_tbls] >> load_dim_tables() >> load_fct_flights

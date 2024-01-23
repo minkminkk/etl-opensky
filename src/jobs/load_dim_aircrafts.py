@@ -126,7 +126,20 @@ def main() -> None:
 
     if df.filter(F.isnull(F.col("icao24_addr"))).count() > 0:
         print("icao24_addr has NULL values after join.")
-        raise BrokenPipeError()
+        raise DataQualityError()
+    
+    # Check newest dim_id
+    cur_num_rows = spark.sql("SELECT COUNT(*) AS cnt FROM dim_aircrafts;") \
+        .collect()[0]["cnt"]
+    if cur_num_rows == df_aircrafts.count():
+        print("No new data was found. Cancelled writing.")
+    else:
+        print("New data found.")
+        df_aircrafts.write \
+            .mode("append") \
+            .format("hive") \
+            .saveAsTable("dim_aircrafts")
+        #TODO: Fix this write
 
 
 def field_vals_to_nulls(

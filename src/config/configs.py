@@ -156,7 +156,7 @@ class AirflowPath:
     
     @property
     def jobs(self):
-        return os.path.join(self.dags, "jobs")
+        return os.path.join(self.home, "jobs")
     
     @property
     def config(self):

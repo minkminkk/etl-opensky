@@ -20,20 +20,9 @@ def main(start_date: str, end_date: str) -> None:
         .enableHiveSupport() \
         .getOrCreate()
     
-    # Create table if not exists
-    spark.sql("""CREATE TABLE IF NOT EXISTS dim_dates (
-        date_dim_id INTEGER,
-        date DATE,
-        year SMALLINT,
-        month TINYINT,
-        day TINYINT,
-        week_of_year TINYINT,
-        day_of_week TINYINT
-    ) USING hive;""")
-
     # Get current data in date table
     df_cur = spark.sql(f"SELECT * FROM dim_dates WHERE \
-        date BETWEEN '{start_date}' AND '{end_date}';")
+        date_date BETWEEN '{start_date}' AND '{end_date}';")
     expected_num_rows = spark.sql(
         f"SELECT DATE_DIFF('{end_date}', '{start_date}') + 1 AS cnt;"
     ).collect()[0]["cnt"]
@@ -59,7 +48,17 @@ def main(start_date: str, end_date: str) -> None:
         
 
 def populate_date_df(start_date: str, end_date: str) -> DataFrame:
-    """Populate calendar date from start_date to end_date"""
+    """Populate calendar date from start_date to end_date
+    
+    Schema of generated DataFrame:
+    |--- date_dim_id        (IntegerType())
+    |--- date_date          (DateType())
+    |--- year               (ShortType())
+    |--- month              (ByteType())
+    |--- day                (ByteType())
+    |--- week_of_year       (ByteType())
+    |--- day_of_week        (ByteType())
+    """
     spark = SparkSession.getActiveSession()
 
     # Reference
@@ -71,18 +70,22 @@ def populate_date_df(start_date: str, end_date: str) -> DataFrame:
                 TO_DATE('{end_date}'), 
                 INTERVAL 1 day
             )
-        ) AS date;
+        ) AS date_date;
     """) \
         .createOrReplaceTempView("dates")
     df_dates = spark.sql(f"""
         SELECT 
-            ((YEAR(date) * 10000) + MONTH(date) * 100 + DAY(date)) AS date_dim_id,
-            date, 
-            YEAR(date) AS year,
-            MONTH(date) AS month,
-            DAY(date) AS day,
-            WEEKOFYEAR(date) AS week_of_year,
-            DAYOFWEEK(date) AS day_of_week
+            (
+                (YEAR(date_date) * 10000) 
+                + MONTH(date_date) * 100 
+                + DAY(date_date)
+            ) AS date_dim_id,
+            date_date, 
+            YEAR(date_date) AS year,
+            MONTH(date_date) AS month,
+            DAY(date_date) AS day,
+            WEEKOFYEAR(date_date) AS week_of_year,
+            DAYOFWEEK(date_date) AS day_of_week
         FROM dates;
     """)
 

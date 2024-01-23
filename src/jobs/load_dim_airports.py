@@ -52,7 +52,7 @@ def main() -> None:
     df_airports = df_airports \
         .withColumnsRenamed({"icao": "icao_code", "iata": "iata_code"}) \
         .withColumn("airport_dim_id", F.row_number().over(Window.orderBy("name")))
-    
+
     # Compare current and processed data
     cur_max_dim_id = spark \
         .sql("SELECT MAX(airport_dim_id) AS max FROM dim_airports;") \
@@ -67,7 +67,7 @@ def main() -> None:
         df_append.show(10)
         df_append.write \
             .mode("append") \
-            .format("hive") \
+            .format("overwrite") \
             .saveAsTable("dim_airports")
 
 

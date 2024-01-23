@@ -15,6 +15,7 @@ def main(execution_date: datetime) -> None:
     HDFS_CONF = HDFSConfig()
     SPARK_CONF = SparkConfig()
     partition_uri = HDFS_CONF.uri \
+        + "/data_lake/flights" \
         + f"/year={execution_date.year}" \
         + f"/month={execution_date.month}" \
         + f"/day={execution_date.day}"
@@ -23,8 +24,11 @@ def main(execution_date: datetime) -> None:
     spark = SparkSession.builder \
         .master(SPARK_CONF.uri) \
         .config("spark.sql.warehouse.dir", SPARK_CONF.sql_warehouse_dir) \
+        .config("hive.", SPARK_CONF.sql_warehouse_dir) \
         .enableHiveSupport() \
         .getOrCreate()
+    spark.sql("SHOW DATABASES;").show()
+    spark.sql("SHOW TABLES;").show()
     
     # Read current data
     df_cur_partition = spark.read.parquet(partition_uri)
@@ -37,15 +41,14 @@ def main(execution_date: datetime) -> None:
             "estDepartureAirport",
             "lastSeen",
             "estArrivalAirport",
-            "callsign"
         ) \
         .withColumnsRenamed(
             {
                 "icao24": "aircraft_icao24",
                 "firstSeen": "depart_ts",
-                "estDepartureAirport": "depart_airport",
+                "estDepartureAirport": "depart_airport_icao",
                 "lastSeen": "arrival_ts",
-                "estArrivalAirport": "arrival_airport",
+                "estArrivalAirport": "arrival_airport_icao",
             }
         )
     
@@ -63,7 +66,39 @@ def main(execution_date: datetime) -> None:
                 )
             }
         )
-    df_cur_partition.show(10)
+    
+    # Lookup dim_id in remaining dimensions
+    df_airports = spark.sql("SELECT airport_dim_id, icao_code FROM dim_airports;")
+    df_cur_partition = df_cur_partition \
+        .join(
+            df_airports,
+            on = (df_cur_partition["depart_airport_icao"] \
+                == df_airports["icao_code"]),
+            how = "left"
+        ) \
+        .withColumnRenamed("airport_dim_id", "depart_airport_dim_id") \
+        .drop("icao_code") \
+        .join(
+            df_airports,
+            on = (df_cur_partition["arrival_airport_icao"] \
+                == df_airports["icao_code"]),
+            how = "left"
+        ) \
+        .drop("icao_code")
+    
+    df_aircrafts = spark.sql(
+        "SELECT aircraft_dim_id, icao24_addr FROM dim_aircrafts;"
+    )
+    df_cur_partition = df_cur_partition \
+        .join(
+            df_aircrafts,
+            on = (df_cur_partition["aircraft_icao24"] \
+                == df_aircrafts["icao24_addr"]),
+            how = "left"
+        ) \
+        .drop("icao24_addr")
+    
+    df_cur_partition.show()
 
 
 if __name__ == "__main__":
