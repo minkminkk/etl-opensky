@@ -5,23 +5,7 @@
 
 x-hdfs-common:
   &hdfs-common
-  image: apache/hadoop:3
-  env_file:
-    - ./containers/hadoop-hive/hadoop-hive.env
-
-
-x-hive-common:
-  &hive-common
-  image: apache/hive:4.0.0-beta-1
-  env_file:
-    - ./containers/hadoop-hive/hadoop-hive.env
-  environment:
-    - HIVE_CUSTOM_CONF_DIR=/opt/hive/conf/custom
-  depends_on:
-  - hdfs-namenode
-  - hdfs-datanode
-  volumes:
-    - ./containers/hadoop-hive/hive-site.xml:/opt/hive/conf/custom/hive-site.xml
+  
 
 
 services:
@@ -30,8 +14,9 @@ services:
       context: ./containers/airflow
     env_file: ./containers/airflow/airflow.env
     volumes:
-      - ./containers/airflow/dags:/opt/airflow/dags
-      - ./containers/airflow/config:/opt/airflow/config
+      - ./src/dags:/opt/airflow/dags
+      - ./src/jobs:/opt/airflow/jobs
+      - ./src/config:/opt/airflow/config
       - ./logs/airflow:/opt/airflow/logs
       - ./data:/data
     ports:
@@ -44,13 +29,17 @@ services:
       - '8088:8080'
     volumes:
       - ./data:/data
+      - ./containers/spark/hive-site.xml:/opt/bitnami/spark/conf/hive-site.xml
 
   spark-worker:
     image: bitnami/spark:3.5
     env_file: ./containers/spark/spark-worker.env
 
   hdfs-namenode:
-    <<: *hdfs-common
+    image: apache/hadoop:3
+    restart: unless-stopped
+    env_file:
+      - ./containers/hadoop-hive/hadoop-hive.env
     hostname: namenode
     command: ["hdfs", "namenode"]
     ports:
@@ -65,23 +54,22 @@ services:
       start_period: 10s
   
   hdfs-datanode:
-    <<: *hdfs-common
+    image: apache/hadoop:3
+    restart: unless-stopped
+    env_file:
+      - ./containers/hadoop-hive/hadoop-hive.env
     command: ["hdfs", "datanode"]
-
+  
   hive-server:
-    <<: *hive-common
+    image: apache/hive:3.1.3
+    env_file:
+      - ./containers/hadoop-hive/hadoop-hive.env
     volumes:
+      - ./containers/hadoop-hive/conf:/hive-custom-conf
       - ./logs/hiveserver:/tmp/hive/
     environment:
+      - HIVE_CUSTOM_CONF_DIR=/hive-custom-conf
       - SERVICE_NAME=hiveserver2
     ports:
       - 10000:10000
       - 10002:10002
-  
-  hive-metastore:
-    <<: *hive-common
-    environment:
-      - SERVICE_NAME=metastore
-    ports:
-      - 9083:9083
-      
