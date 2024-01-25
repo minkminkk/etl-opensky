@@ -53,21 +53,19 @@ def main() -> None:
         .withColumnsRenamed({"icao": "icao_code", "iata": "iata_code"}) \
         .withColumn("airport_dim_id", F.row_number().over(Window.orderBy("name")))
 
-    # Compare current and processed data
-    cur_max_dim_id = spark \
-        .sql("SELECT MAX(airport_dim_id) AS max FROM dim_airports;") \
-        .collect()[0]["max"]
-    df_append = df_airports.filter(df_airports["airport_dim_id"] > cur_max_dim_id)
-
-    # Write to DWH if there is new data
-    if df_append.isEmpty():
+    # Compare current and processed data to detect new data
+    cur_df_airports = spark.sql("SELECT * FROM dim_airports;")
+    if cur_df_airports == df_airports:
         print("No new data was detected.")
         return "skipped"
     else:
-        df_append.show(10)
-        df_append.write \
-            .mode("append") \
-            .format("overwrite") \
+        print("Detected new data. Overwriting old data")
+
+        # Write to DWH if there is new data
+        df_airports.show(10)
+        df_airports.write \
+            .mode("overwrite") \
+            .format("hive") \
             .saveAsTable("dim_airports")
 
 

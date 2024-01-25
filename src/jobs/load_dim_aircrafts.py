@@ -9,7 +9,6 @@ from typing import List
 from pyspark.sql import SparkSession, DataFrame, Window
 from pyspark.sql.types import *
 import pyspark.sql.functions as F
-from pyspark.errors import AnalysisException
 
 from configs import HDFSConfig, WebHDFSConfig, SparkConfig
 
@@ -113,11 +112,12 @@ def main() -> None:
             "aircraft_dim_id", 
             F.row_number().over(Window.orderBy("icao24_addr"))
         )
-
+    df_aircrafts.select("icao_type").orderBy(F.char_length(F.col("icao_type")), ascending = False).show()
+    
     # Quality check - if filter too much, cannot represent dimension data in fact
     df_aircrafts.filter(~F.col("operating_airline").isNull()).show()
 
-    df_flights = spark.read.parquet(HDFS_CONF.uri + "/data_lake/flights/year=2018/month=1/day=1")
+    df_flights = spark.read.parquet(HDFS_CONF.uri + "/data_lake/flights")
     df = df_flights.join(
         df_aircrafts, 
         on = (df_flights["icao24"] == df_aircrafts["icao24_addr"]),
@@ -126,20 +126,18 @@ def main() -> None:
 
     if df.filter(F.isnull(F.col("icao24_addr"))).count() > 0:
         print("icao24_addr has NULL values after join.")
-        raise DataQualityError()
+        raise Exception("Data check failed")
     
-    # Check newest dim_id
-    cur_num_rows = spark.sql("SELECT COUNT(*) AS cnt FROM dim_aircrafts;") \
-        .collect()[0]["cnt"]
-    if cur_num_rows == df_aircrafts.count():
+    # Compare current and new data
+    cur_df_aircrafts = spark.sql("SELECT * FROM dim_aircrafts;")
+    if cur_df_aircrafts == df_aircrafts:
         print("No new data was found. Cancelled writing.")
     else:
-        print("New data found.")
+        print("New data found. Overwrite on old data.")
         df_aircrafts.write \
-            .mode("append") \
+            .mode("overwrite") \
             .format("hive") \
             .saveAsTable("dim_aircrafts")
-        #TODO: Fix this write
 
 
 def field_vals_to_nulls(
@@ -167,8 +165,12 @@ def preprocess_aircrafts(df: DataFrame) -> DataFrame:
     Specify operator identifier based on priority ICAO -> IATA -> name (if have)
     """
     df = df.drop("manufacturer_name", "operator_callsign", "owner", "note") \
-            .dropna("all") \
-            .dropna(subset = ["manufacturer_code"])
+        .dropna("all") \
+        .dropna(subset = ["manufacturer_code"]) \
+        .where("LENGTH(icao_designator) <= 4 OR icao_designator IS NULL") \
+        .where("LENGTH(icao_type) == 3 OR icao_type IS NULL")   
+            # fields that do not satisfy `where` could be filled with NULLs
+            # instead of dropping 
     df = field_vals_to_nulls(
         df,
         {

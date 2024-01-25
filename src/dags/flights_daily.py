@@ -156,3 +156,4 @@ with DAG(
 
     """Task dependencies"""
     [upload_local(), create_hive_tbls] >> load_dim_tables() >> load_fct_flights
+    ingest_flights >> load_fct_flights

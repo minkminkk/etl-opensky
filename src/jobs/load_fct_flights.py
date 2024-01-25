@@ -24,11 +24,8 @@ def main(execution_date: datetime) -> None:
     spark = SparkSession.builder \
         .master(SPARK_CONF.uri) \
         .config("spark.sql.warehouse.dir", SPARK_CONF.sql_warehouse_dir) \
-        .config("hive.", SPARK_CONF.sql_warehouse_dir) \
         .enableHiveSupport() \
         .getOrCreate()
-    spark.sql("SHOW DATABASES;").show()
-    spark.sql("SHOW TABLES;").show()
     
     # Read current data
     df_cur_partition = spark.read.parquet(partition_uri)
