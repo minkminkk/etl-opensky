@@ -1,42 +1,34 @@
-import argparse
-from datetime import date
-from typing import Any, Callable
-import logging
-
 from pyspark.sql import SparkSession
 import pyspark.sql.functions as F
 from pyspark.errors.exceptions.captured import AnalysisException
 
-from configs import SparkConfig, HDFSConfig
-
+from typing import Any, Callable
+from datetime import datetime
+import logging
 import requests
+
+from configs import get_default_SparkConf, SparkSchema
+SCHEMAS = SparkSchema()
 
 
 def main(airport_icao: str, start_ts: int, end_ts: int) -> None:
     """Ingest extracted data from OpenSky API to data lake"""
-    # Get configs
-    HDFS_CONF = HDFSConfig()
-    SPARK_CONF = SparkConfig()
+    # Get HDFS URI of current partition
+    execution_date = datetime.fromtimestamp(start_ts)
+    data_path = "/data_lake/flights"
+    partition_path = data_path \
+        + f"/depart_year={execution_date.year}" \
+        + f"/depart_month={execution_date.month}" \
+        + f"/depart_day={execution_date.day}"
 
     # Create SparkSession
+    conf = get_default_SparkConf()
     spark = SparkSession.builder \
-        .master(SPARK_CONF.uri) \
+        .config(conf = conf) \
         .getOrCreate()
 
-    # Get HDFS URI of current partition
-    execution_date = date.fromtimestamp(start_ts)
-    data_path = "/data_lake/flights"
-    data_uri = HDFS_CONF.uri + data_path
-    partition_uri = data_uri \
-        + f"/year={execution_date.year}" \
-        + f"/month={execution_date.month}" \
-        + f"/day={execution_date.day}"
-
     # Extract data into DataFrame
-    df_extract = spark.createDataFrame(
-        [], 
-        schema = SPARK_CONF.schema.src_flights
-    )
+    df_extract = spark.createDataFrame([], schema = SCHEMAS.src_flights)
     for type in ["departure", "arrival"]:
         response = request_opensky(type, airport_icao, start_ts, end_ts)
         list_flights = process_response(
@@ -47,18 +39,18 @@ def main(airport_icao: str, start_ts: int, end_ts: int) -> None:
 
         df = spark.createDataFrame(
             list_flights, 
-            schema = SPARK_CONF.schema.src_flights
+            schema = SCHEMAS.src_flights
         )
         df_extract = df_extract.unionByName(df)
 
     # Read current data in partition to another DataFrame
     try:
-        df_cur_partition = spark.read.parquet(partition_uri) \
-            .drop("year", "month", "day")
+        df_cur_partition = spark.read.parquet(partition_path) \
+            .drop("depart_year", "depart_month", "depart_day")
     except AnalysisException:   # In case partition empty
         df_cur_partition = spark.createDataFrame(
             [], 
-            schema = SPARK_CONF.schema.src_flights
+            schema = SCHEMAS.src_flights
         )
     
     # If no new data to append then end task 
@@ -75,17 +67,17 @@ def main(airport_icao: str, start_ts: int, end_ts: int) -> None:
     # Split into another line to avoid conflict on firstSeen
     df_append = df_append.withColumns(
         {
-            "year": F.year(df_append["departure_ts"]),
-            "month": F.month(df_append["departure_ts"]),
-            "day": F.day(df_append["departure_ts"])
+            "depart_year": F.year(df_append["departure_ts"]),
+            "depart_month": F.month(df_append["departure_ts"]),
+            "depart_day": F.day(df_append["departure_ts"])
         }
     ).drop("departure_ts")
     
     # Write into HDFS
-    df_append.show(10)     # for logging added data
+    df_append.limit(10).show()     # for logging added data
     df_append.write \
-        .partitionBy("year", "month", "day") \
-        .parquet(data_uri, mode = "append")
+        .partitionBy("depart_year", "depart_month", "depart_day") \
+        .parquet(data_path, mode = "append")
 
 
 def request_opensky(type: str, airport_icao: str, start_ts: int, end_ts: int) \
@@ -134,6 +126,9 @@ def process_response(
 
 
 if __name__ == "__main__":
+    import argparse
+    import os
+    
     # Parse CLI arguments
     parser = argparse.ArgumentParser()
     parser.add_argument("airport_icao",
@@ -142,6 +137,10 @@ if __name__ == "__main__":
     parser.add_argument("start_ts", type = int, help = "Data start timestamp")
     parser.add_argument("end_ts", type = int, help = "Data end timestamp")
     args = parser.parse_args()
+
+    # Specify timezone as UTC so that strptime can parse date strings into UTC
+    # instead of local time (No effect to actual environment variables)
+    os.environ["TZ"] = "Europe/London"
 
     # Call main function
     main(

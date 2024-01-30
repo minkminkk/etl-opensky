@@ -1,34 +1,28 @@
-import argparse
-from datetime import datetime
-import os
-
 from pyspark.sql import SparkSession
 from pyspark.sql.types import *
 import pyspark.sql.functions as F
 
-from configs import HDFSConfig, SparkConfig
+from datetime import datetime
+from configs import get_default_SparkConf
 
 
 def main(execution_date: datetime) -> None:
     """Transformation on flights data"""
     # Get configs
-    HDFS_CONF = HDFSConfig()
-    SPARK_CONF = SparkConfig()
-    partition_uri = HDFS_CONF.uri \
-        + "/data_lake/flights" \
-        + f"/year={execution_date.year}" \
-        + f"/month={execution_date.month}" \
-        + f"/day={execution_date.day}"
+    partition_path = "/data_lake/flights" \
+        + f"/depart_year={execution_date.year}" \
+        + f"/depart_month={execution_date.month}" \
+        + f"/depart_day={execution_date.day}"
 
     # Create SparkSession
+    conf = get_default_SparkConf()
     spark = SparkSession.builder \
-        .master(SPARK_CONF.uri) \
-        .config("spark.sql.warehouse.dir", SPARK_CONF.sql_warehouse_dir) \
+        .config(conf = conf) \
         .enableHiveSupport() \
         .getOrCreate()
     
     # Read current data
-    df_cur_partition = spark.read.parquet(partition_uri)
+    df_cur_partition = spark.read.parquet(partition_path)
     
     # Filter & rename columns
     df_cur_partition = df_cur_partition \
@@ -51,6 +45,7 @@ def main(execution_date: datetime) -> None:
     
     # Calculate dates and timestamps
     df_cur_partition = df_cur_partition \
+        .dropna(subset = "depart_ts") \
         .withColumns(
             {
                 "depart_ts": F.timestamp_seconds(df_cur_partition["depart_ts"]),
@@ -64,8 +59,10 @@ def main(execution_date: datetime) -> None:
             }
         )
     
-    # Lookup dim_id in remaining dimensions
-    df_airports = spark.sql("SELECT airport_dim_id, icao_code FROM dim_airports;")
+    # Join dimensions to get dim_id for dim columns in fact table
+    df_airports = spark \
+        .table("dim_airports") \
+        .select("airport_dim_id", "icao_code")
     df_cur_partition = df_cur_partition \
         .join(
             df_airports,
@@ -83,9 +80,9 @@ def main(execution_date: datetime) -> None:
         ) \
         .drop("icao_code")
     
-    df_aircrafts = spark.sql(
-        "SELECT aircraft_dim_id, icao24_addr FROM dim_aircrafts;"
-    )
+    df_aircrafts = spark \
+        .table("dim_aircrafts") \
+        .select("aircraft_dim_id", "icao24_addr")
     df_cur_partition = df_cur_partition \
         .join(
             df_aircrafts,
@@ -95,10 +92,13 @@ def main(execution_date: datetime) -> None:
         ) \
         .drop("icao24_addr")
     
-    df_cur_partition.show()
+    df_cur_partition.limit(10).show()
 
 
 if __name__ == "__main__":
+    import argparse
+    import os
+
     # Parse CLI arguments
     parser = argparse.ArgumentParser()
     parser.add_argument("execution_date",

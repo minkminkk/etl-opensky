@@ -4,69 +4,71 @@
 # Therefore, this is just a temporary implementation with fixed JSON files.
 # 
 
-from typing import List
-
 from pyspark.sql import SparkSession, DataFrame, Window
 from pyspark.sql.types import *
 import pyspark.sql.functions as F
 
-from configs import HDFSConfig, WebHDFSConfig, SparkConfig
-
+from typing import List
+from datetime import datetime
 import hdfs
 import json
 
+from configs import ServiceConfig, get_default_SparkConf, SparkSchema
+SCHEMAS = SparkSchema()
+WEBHDFS_URI = ServiceConfig("webhdfs").uri
 
-def main() -> None:
 
+def main(execution_date: datetime) -> None:
     """Load aircrafts dimension table"""
     # Get configs
-    SPARK_CONF = SparkConfig()
-    HDFS_CONF = HDFSConfig()
-    WEBHDFS_CONF = WebHDFSConfig()
-    hdfs_path = "/data_lake"
-    dir_uri = HDFS_CONF.uri + hdfs_path
+    dir_path = "/data_lake"
     
     # Create SparkSession
+    conf = get_default_SparkConf()
     spark = SparkSession.builder \
-        .master(SPARK_CONF.uri) \
-        .config("spark.sql.warehouse.dir", SPARK_CONF.sql_warehouse_dir) \
+        .config(conf = conf) \
         .enableHiveSupport() \
         .getOrCreate()
 
     # Get aircrafts data from data lake and preprocess
     df_aircrafts = preprocess_aircrafts(
         spark.read.csv(
-            dir_uri + "/aircraft-database-complete-2024-01.csv", 
-            schema = SPARK_CONF.schema.src_aircrafts
+            dir_path + "/aircraft-database-complete-2024-01.csv", 
+            schema = SCHEMAS.src_aircrafts
         )
     )
+
+    # Checking FK constraints with fact data
+    print("Checking FK constraint with fact data...")
+    df_aircrafts_fk_constraint_check(df_aircrafts, execution_date)
+    print("Check successful. Continue processing...")
     
     # Preprocess manufacturer data
     df_manufacturers = preprocess_manufacturers(
         spark.read.csv(
-            dir_uri + "/doc8643Manufacturers.csv",
-            schema = SPARK_CONF.schema.src_manufacturers
+            dir_path + "/doc8643Manufacturers.csv",
+            schema = SCHEMAS.src_manufacturers
         )
     )
     
     # Preprocess aircraft type data
     df_aircraft_types = preprocess_aircraft_types(
         spark.read.csv(
-            dir_uri + "/doc8643AircraftTypes.csv",
-            schema = SPARK_CONF.schema.src_aircraft_types
+            dir_path + "/doc8643AircraftTypes.csv",
+            schema = SCHEMAS.src_aircraft_types
         )
     )
     
     # Read and preprocess airline data
     hdfs_path = "/data_lake/airlines.json"
-    client = hdfs.InsecureClient(WEBHDFS_CONF.uri)
+    client = hdfs.InsecureClient(WEBHDFS_URI)
     with client.read(hdfs_path) as file:
         airlines = json.load(file)["rows"]
     
     df_airlines = preprocess_airlines(
         spark.createDataFrame(
             airlines, 
-            schema = SPARK_CONF.schema.src_airlines
+            schema = SCHEMAS.src_airlines
         )
     )
 
@@ -112,24 +114,9 @@ def main() -> None:
             "aircraft_dim_id", 
             F.row_number().over(Window.orderBy("icao24_addr"))
         )
-    df_aircrafts.select("icao_type").orderBy(F.char_length(F.col("icao_type")), ascending = False).show()
-    
-    # Quality check - if filter too much, cannot represent dimension data in fact
-    df_aircrafts.filter(~F.col("operating_airline").isNull()).show()
-
-    df_flights = spark.read.parquet(HDFS_CONF.uri + "/data_lake/flights")
-    df = df_flights.join(
-        df_aircrafts, 
-        on = (df_flights["icao24"] == df_aircrafts["icao24_addr"]),
-        how = "left"
-    )
-
-    if df.filter(F.isnull(F.col("icao24_addr"))).count() > 0:
-        print("icao24_addr has NULL values after join.")
-        raise Exception("Data check failed")
     
     # Compare current and new data
-    cur_df_aircrafts = spark.sql("SELECT * FROM dim_aircrafts;")
+    cur_df_aircrafts = spark.table("dim_aircrafts")
     if cur_df_aircrafts == df_aircrafts:
         print("No new data was found. Cancelled writing.")
     else:
@@ -239,5 +226,51 @@ def preprocess_airlines(df: DataFrame) -> DataFrame:
         .drop("code")
 
 
+def df_aircrafts_fk_constraint_check(
+    df_aircrafts: DataFrame, 
+    execution_date: datetime
+):
+    """Check FK constraints before generating dim_id in aircrafts table 
+        flights.icao24 (FK) -> aircrafts.icao24_addr (PK)
+    """
+    spark = SparkSession.getActiveSession()
+
+    flights_partition_path = "/data_lake/flights" \
+        + f"/depart_year={execution_date.year}" \
+        + f"/depart_month={execution_date.month}" \
+        + f"/depart_day={execution_date.day}"
+    df_flights = spark.read.parquet(flights_partition_path)
+    df_check = df_flights.join(
+        df_aircrafts, 
+        on = (df_flights["icao24"] == df_aircrafts["icao24_addr"]),
+        how = "left"
+    )
+
+    if df_check.filter(F.isnull(F.col("icao24_addr"))).count() > 0:
+        print("icao24_addr has NULL values after join.")
+        raise Exception("Data check failed")
+
+
 if __name__ == "__main__":
-    main()
+    import argparse
+    import os
+
+    # Parse CLI arguments
+    parser = argparse.ArgumentParser()
+    parser.add_argument("execution_date",
+        help = "execution date (in YYYY-MM-DD)"
+    )
+    args = parser.parse_args()
+
+    # Specify timezone as UTC so that strptime can parse date strings into UTC
+    # instead of local time (No effect to actual environment variables)
+    os.environ["TZ"] = "Europe/London"
+
+    # Preliminary input validation
+    try:
+        args.execution_date = datetime.strptime(args.execution_date, "%Y-%m-%d")
+    except ValueError:
+        raise ValueError("Invalid input date.")
+
+    # Call main function
+    main(execution_date = args.execution_date)

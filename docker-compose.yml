@@ -3,12 +3,12 @@
 # apache/hadoop: https://hub.docker.com/r/apache/hadoop
 # apache/hive: https://hive.apache.org/developement/quickstart/
 
-x-hdfs-common:
-  &hdfs-common
-  
-
+x-hadoop-common: &hadoop-common
+  image: apache/hadoop:3
+  env_file: ./containers/hadoop/hadoop.env
 
 services:
+  # Airflow
   airflow:
     build: 
       context: ./containers/airflow
@@ -22,54 +22,38 @@ services:
     ports:
       - "8080:8080"
 
+  # Spark
   spark-master:
     image: bitnami/spark:3.5
     env_file: ./containers/spark/spark-master.env
     ports:
-      - '8088:8080'
-    volumes:
-      - ./data:/data
-      - ./containers/spark/hive-site.xml:/opt/bitnami/spark/conf/hive-site.xml
+      - '8081:8080'
 
   spark-worker:
     image: bitnami/spark:3.5
     env_file: ./containers/spark/spark-worker.env
 
+  # HDFS
   hdfs-namenode:
-    image: apache/hadoop:3
-    restart: unless-stopped
-    env_file:
-      - ./containers/hadoop-hive/hadoop-hive.env
+    <<: *hadoop-common
     hostname: namenode
     command: ["hdfs", "namenode"]
     ports:
       - 9870:9870
     environment:
       - ENSURE_NAMENODE_DIR=/tmp/hadoop-hadoop/dfs/name
-    healthcheck:
-      test: ["CMD", "hdfs", "fsck", "/"]
-      interval: 30s
-      timeout: 30s
-      retries: 5
-      start_period: 10s
   
   hdfs-datanode:
-    image: apache/hadoop:3
-    restart: unless-stopped
-    env_file:
-      - ./containers/hadoop-hive/hadoop-hive.env
+    <<: *hadoop-common
     command: ["hdfs", "datanode"]
-  
+
+  # Hive
   hive-server:
     image: apache/hive:3.1.3
-    env_file:
-      - ./containers/hadoop-hive/hadoop-hive.env
-    volumes:
-      - ./containers/hadoop-hive/conf:/hive-custom-conf
-      - ./logs/hiveserver:/tmp/hive/
+    hostname: hive-server
     environment:
-      - HIVE_CUSTOM_CONF_DIR=/hive-custom-conf
       - SERVICE_NAME=hiveserver2
+    volumes:
+      - ./logs/hiveserver:/tmp/hive/
     ports:
-      - 10000:10000
       - 10002:10002

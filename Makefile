@@ -8,16 +8,10 @@ repo_folders:
 		&& sudo chmod a+rw -R $(airflow_log_dir) $(hiveserver_log_dir) $(data_dir)
 download_data: repo_folders
 	bash ./scripts/download_data.sh $(data_dir)
-hdfs_folders:
-	docker exec etl-opensky-hdfs-namenode-1 hdfs dfs \
-		-mkdir -p /data_lake/flights /data_warehouse
 setup: repo_folders download_data
 	
-# pack_job_deps:
-# 	bash scripts/pack_job_deps.sh
-
 # Docker-compose related
-up:
+up: setup
 	docker compose up -d
 down:
 	docker compose down

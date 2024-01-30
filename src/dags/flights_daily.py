@@ -7,11 +7,15 @@ from airflow.providers.apache.spark.operators.spark_submit \
 from airflow.providers.apache.hive.operators.hive import HiveOperator
 from airflow.exceptions import AirflowSkipException
 
-from configs import GeneralConfig, AirflowConfig, \
-    HDFSConfig, WebHDFSConfig, SparkConfig
-
 import pendulum
 import logging
+
+from configs import GeneralConfig, ServiceConfig, AirflowPaths
+GENERAL_CONF = GeneralConfig()  # airport_icao, date_format
+HDFS_CONF = ServiceConfig("hdfs")
+SPARK_CONF = ServiceConfig("spark")
+AIRFLOW_PATHS = AirflowPaths()
+
 
 # DAG's default arguments
 default_args = {
@@ -19,14 +23,6 @@ default_args = {
     "schedule": "@daily",
     "retries": 0
 }
-
-# Get configs
-GENERAL_CONF = GeneralConfig()  # airport_icao, date_format
-AIRFLOW_CONF = AirflowConfig()
-HDFS_CONF = HDFSConfig()
-WEBHDFS_CONF = WebHDFSConfig()
-SPARK_CONF = SparkConfig()
-
 
 with DAG(
     dag_id = "flights_daily",
@@ -42,14 +38,14 @@ with DAG(
     webhdfs_hook = WebHDFSHook()
 
     # Default args for SparkSubmitOperators
-    default_py_files = f"{AIRFLOW_CONF.path.config}/configs.py"
+    default_py_files = f"{AIRFLOW_PATHS.config}/configs.py"
 
 
     """Extract flights data from OpenSky API and ingest into data lake"""
     ingest_flights = SparkSubmitOperator(
         task_id = "ingest_flights",
         name = "Extract flights data from OpenSky API into data lake",
-        application = f"{AIRFLOW_CONF.path.jobs}/extract_flights.py",
+        application = f"{AIRFLOW_PATHS.jobs}/extract_flights.py",
         application_args = [
             GENERAL_CONF.airport_icao, start_ts, end_ts
         ],
@@ -98,29 +94,20 @@ with DAG(
             )
 
 
-    # TODO: Separate transform and load task and add data check task 
     """Create Hive tables in data warehouse"""
     create_hive_tbls = SparkSubmitOperator(
         task_id = "create_hive_tbls",
         name = "Create Hive tables in data warehouse",
-        application = f"{AIRFLOW_CONF.path.jobs}/create_hive_tbls.py",
+        application = f"{AIRFLOW_PATHS.jobs}/create_hive_tbls.py",
         py_files = default_py_files
     )
-
-    # TODO: Check later (not urgent)
-    # with open(AIRFLOW_CONF.path.dags + "/hql/create_hive_tbls.hql", "r") as file:
-    #     create_hive_tables = HiveOperator(
-    #         task_id = "create_hive_tables",
-    #         hql = file.read(),
-    #         run_as_owner = True
-    #     )
 
 
     """Transform and load dimension tables to data warehouse"""
     @task_group(
         group_id = "load_dim_tables",
         default_args = {
-            "trigger_rule": "all_done",
+            "trigger_rule": "none_failed",
             "py_files": default_py_files
         }
     )
@@ -128,18 +115,18 @@ with DAG(
         SparkSubmitOperator(
             task_id = "airports",
             name = "Load airports dim table to data warehouse",
-            application = f"{AIRFLOW_CONF.path.jobs}/load_dim_airports.py"
+            application = f"{AIRFLOW_PATHS.jobs}/load_dim_airports.py"
         )
         SparkSubmitOperator(
             task_id = "aircrafts",
             name = "Load aircrafts dim table to data warehouse",
-            application = f"{AIRFLOW_CONF.path.jobs}/load_dim_aircrafts.py",
-            application_args = ds,
+            application = f"{AIRFLOW_PATHS.jobs}/load_dim_aircrafts.py",
+            application_args = [ds],
         )
         SparkSubmitOperator(
             task_id = "dates",
             name = "Prepopulate dates dim table to data warehouse",
-            application = f"{AIRFLOW_CONF.path.jobs}/load_dim_dates.py",
+            application = f"{AIRFLOW_PATHS.jobs}/load_dim_dates.py",
             application_args = ["2018-01-01", "2028-01-01"],
         )
 
@@ -148,7 +135,7 @@ with DAG(
     load_fct_flights = SparkSubmitOperator(
         task_id = "load_fct_flights",
         name = "Transform and load flights data to data warehouse",
-        application = f"{AIRFLOW_CONF.path.jobs}/load_fct_flights.py",
+        application = f"{AIRFLOW_PATHS.jobs}/load_fct_flights.py",
         application_args = [ds],
         py_files = default_py_files
     )

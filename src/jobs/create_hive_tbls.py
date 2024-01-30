@@ -1,16 +1,15 @@
+from pyspark.context import SparkContext
 from pyspark.sql import SparkSession
 from pyspark.sql.types import *
 
-from configs import SparkConfig
-
-SPARK_CONF = SparkConfig()
+from configs import get_default_SparkConf
 
 
 def main() -> None:
     # Create SparkSession
+    conf = get_default_SparkConf()
     spark = SparkSession.builder \
-        .master(SPARK_CONF.uri) \
-        .config("spark.sql.warehouse.dir", SPARK_CONF.sql_warehouse_dir) \
+        .config(conf = conf) \
         .enableHiveSupport() \
         .getOrCreate()
     

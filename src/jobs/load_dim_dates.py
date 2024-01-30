@@ -1,46 +1,41 @@
-import argparse
-from datetime import datetime
-import os
-import logging
-
 from pyspark.sql import SparkSession, DataFrame
 from pyspark.sql.types import *
 
-from configs import SparkConfig
+from datetime import datetime, timedelta
+import logging
+
+from configs import ServiceConfig, get_default_SparkConf, SparkSchema
+SCHEMAS = SparkSchema()
 
 
-def main(start_date: str, end_date: str) -> None:
-    # Get configs
-    spark_conf = SparkConfig()
-
+def main(start_date: datetime, end_date: datetime) -> None:
     # Create SparkSession
+    conf = get_default_SparkConf()
     spark = SparkSession.builder \
-        .master(spark_conf.uri) \
-        .config("spark.sql.warehouse.dir", spark_conf.sql_warehouse_dir) \
+        .config(conf = conf) \
         .enableHiveSupport() \
         .getOrCreate()
     
     # Get current data in date table
+    start_date_str = start_date.strftime("%Y-%m-%d")
+    end_date_str = end_date.strftime("%Y-%m-%d")
     df_cur = spark.sql(f"SELECT * FROM dim_dates WHERE \
-        date_date BETWEEN '{start_date}' AND '{end_date}';")
-    expected_num_rows = spark.sql(
-        f"SELECT DATE_DIFF('{end_date}', '{start_date}') + 1 AS cnt;"
-    ).collect()[0]["cnt"]
+        date_date BETWEEN '{start_date_str}' AND '{end_date_str}';")
+    expected_num_rows = (end_date - start_date + timedelta(days = 1)).days
 
-    print(df_cur.count(), expected_num_rows)
     # Compare current data with expected - skip task if already have
     if df_cur.count() == expected_num_rows:
         print(f"Data has already fully loaded. Ending...")
         return "skipped"
 
     # Populate date data 
-    df_dates = populate_date_df(start_date, end_date)
+    df_dates = populate_date_df(start_date_str, end_date_str)
 
     # Data to append
     df_append = df_dates.subtract(df_cur)
-    df_append.show(10)        # for logging added data
     
     # Write into DWH
+    df_append.limit(10).show()        # for logging added data
     df_append.write \
         .mode("append") \
         .format("hive") \
@@ -93,6 +88,9 @@ def populate_date_df(start_date: str, end_date: str) -> DataFrame:
 
 
 if __name__ == "__main__":
+    import argparse
+    import os
+
     # Parse CLI arguments
     parser = argparse.ArgumentParser()
     parser.add_argument("start_date",
@@ -109,8 +107,8 @@ if __name__ == "__main__":
 
     # Preliminary input validation
     try:
-        datetime.strptime(args.start_date, "%Y-%m-%d")
-        datetime.strptime(args.end_date, "%Y-%m-%d")
+        args.start_date = datetime.strptime(args.start_date, "%Y-%m-%d")
+        args.end_date = datetime.strptime(args.end_date, "%Y-%m-%d")
     except ValueError:
         logging.error("\"start_date\", \"end_date\" must be YYYY-MM-DD.")
         raise ValueError("Invalid input dates.")

@@ -1,6 +1,7 @@
 """File for DAGs related configs"""
 
 import os
+from pyspark.conf import SparkConf
 from pyspark.sql.types import *
 
 
@@ -22,12 +23,18 @@ class GeneralConfig:
 
 
 class ServiceConfig:
-    """Base class for service configs"""
-    def __init__(self, service: str, hostname: str, port: int):
-        self.service = service
-        self.hostname = hostname
-        self.port = port
-    
+    """Class for service configs"""
+    def __init__(self, key: str):
+        lookup = {
+            "hdfs": ("hdfs", "namenode", "8020"),
+            "webhdfs": ("http", "namenode", "9870"),
+            "spark": ("spark", "spark-master", "7077")
+        }
+        try:
+            self.service, self.hostname, self.port = lookup[key]
+        except KeyError:
+            raise ValueError("Invalid input key.")
+
     @property
     def addr(self):
         return f"{self.hostname}:{self.port}"
@@ -37,20 +44,24 @@ class ServiceConfig:
         return f"{self.service}://{self.addr}"
 
 
-"""Specific classes for configs of services"""
-class HDFSConfig(ServiceConfig):
-    def __init__(self):
-        super().__init__("hdfs", "namenode", "8020")
+def get_default_SparkConf() -> SparkConf:
+    """Get a SparkConf object with some default values"""
+    HDFS_CONF = ServiceConfig("hdfs")
+    SPARK_CONF = ServiceConfig("spark")
 
-
-class WebHDFSConfig(ServiceConfig):
-    def __init__(self):
-        super().__init__("http", "namenode", "9870")
-
-    @property
-    def url_prefix(self):
-        return f"{self.uri}/webhdfs/v1"
-        # Might have to change if webhdfs change versioning
+    default_configs = [
+        ("spark.master", SPARK_CONF.uri),
+        ("spark.sql.warehouse.dir", HDFS_CONF.uri + "/data_warehouse"),
+        (
+            "spark.hadoop.fs.defaultFS",
+            f"{HDFS_CONF.service}://{HDFS_CONF.hostname}"
+        ),
+        ("spark.hive.metastore.warehouse.dir", HDFS_CONF.uri + "/data_warehouse"),
+        ("spark.hive.execution.engine", "spark")
+    ]
+        
+    conf = SparkConf().setAll(default_configs)
+    return conf
 
 
 class SparkSchema:
@@ -131,22 +142,13 @@ class SparkSchema:
         )
 
 
-class SparkConfig(ServiceConfig):
-    def __init__(self):
-        super().__init__("spark", "spark-master", 7077)
-        self.schema = SparkSchema()
-
-        # Default warehouse dir: ${HDFS_URI}/data_warehouse    
-        self.sql_warehouse_dir = f"{HDFSConfig().uri}/data_warehouse"
-
-
 """Airflow is also a service. However, its configs specified in ServiceConfig 
 class were not used in the DAGs implementation, but its paths instead.
 
 Therefore, AirflowConfig class is not inherited from the ServiceConfig class.
 Instead, it is implemented as a standalone class with different attributes.
 """
-class AirflowPath:
+class AirflowPaths:
     def __init__(self):
         self.home = os.getenv("AIRFLOW_HOME")
 
@@ -161,8 +163,3 @@ class AirflowPath:
     @property
     def config(self):
         return os.path.join(self.home, "config")
-    
-
-class AirflowConfig:
-    def __init__(self):
-        self.path = AirflowPath()
