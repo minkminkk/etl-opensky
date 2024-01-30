@@ -5,6 +5,7 @@ from pyspark.conf import SparkConf
 from pyspark.sql.types import *
 
 
+"""General DAG configs"""
 class GeneralConfig:
     def __init__(self, airport_icao = "EDDF"):
         self.airport_icao = airport_icao
@@ -22,6 +23,7 @@ class GeneralConfig:
         self._airport_icao = value
 
 
+"""Service addresses and URIs"""
 class ServiceConfig:
     """Class for service configs"""
     def __init__(self, key: str):
@@ -44,6 +46,7 @@ class ServiceConfig:
         return f"{self.service}://{self.addr}"
 
 
+"""Spark configs and schemas"""
 def get_default_SparkConf() -> SparkConf:
     """Get a SparkConf object with some default values"""
     HDFS_CONF = ServiceConfig("hdfs")
