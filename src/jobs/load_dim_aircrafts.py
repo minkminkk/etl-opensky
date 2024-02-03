@@ -18,7 +18,7 @@ SCHEMAS = SparkSchema()
 WEBHDFS_URI = ServiceConfig("webhdfs").uri
 
 
-def main(execution_date: datetime) -> None:
+def main(data_date: datetime) -> None:
     """Load aircrafts dimension table"""
     # Get configs
     dir_path = "/data_lake"
@@ -40,7 +40,7 @@ def main(execution_date: datetime) -> None:
 
     # Checking FK constraints with fact data
     print("Checking FK constraint with fact data...")
-    df_aircrafts_fk_constraint_check(df_aircrafts, execution_date)
+    df_aircrafts_fk_constraint_check(df_aircrafts, data_date)
     print("Check successful. Continue processing...")
     
     # Preprocess manufacturer data
@@ -228,7 +228,7 @@ def preprocess_airlines(df: DataFrame) -> DataFrame:
 
 def df_aircrafts_fk_constraint_check(
     df_aircrafts: DataFrame, 
-    execution_date: datetime
+    data_date: datetime
 ):
     """Check FK constraints before generating dim_id in aircrafts table 
         flights.icao24 (FK) -> aircrafts.icao24_addr (PK)
@@ -236,9 +236,9 @@ def df_aircrafts_fk_constraint_check(
     spark = SparkSession.getActiveSession()
 
     flights_partition_path = "/data_lake/flights" \
-        + f"/depart_year={execution_date.year}" \
-        + f"/depart_month={execution_date.month}" \
-        + f"/depart_day={execution_date.day}"
+        + f"/depart_year={data_date.year}" \
+        + f"/depart_month={data_date.month}" \
+        + f"/depart_day={data_date.day}"
     df_flights = spark.read.parquet(flights_partition_path)
     df_check = df_flights.join(
         df_aircrafts, 
@@ -257,8 +257,8 @@ if __name__ == "__main__":
 
     # Parse CLI arguments
     parser = argparse.ArgumentParser()
-    parser.add_argument("execution_date",
-        help = "execution date (in YYYY-MM-DD)"
+    parser.add_argument("data_date",
+        help = "data date = execution date - 1 day (in YYYY-MM-DD)"
     )
     args = parser.parse_args()
 
@@ -268,9 +268,9 @@ if __name__ == "__main__":
 
     # Preliminary input validation
     try:
-        args.execution_date = datetime.strptime(args.execution_date, "%Y-%m-%d")
+        args.data_date = datetime.strptime(args.data_date, "%Y-%m-%d")
     except ValueError:
         raise ValueError("Invalid input date.")
 
     # Call main function
-    main(execution_date = args.execution_date)
+    main(data_date = args.data_date)

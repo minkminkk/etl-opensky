@@ -12,14 +12,16 @@ SCHEMAS = SparkSchema()
 
 
 def main(airport_icao: str, start_ts: int, end_ts: int) -> None:
+
     """Ingest extracted data from OpenSky API to data lake"""
     # Get HDFS URI of current partition
-    execution_date = datetime.fromtimestamp(start_ts)
     data_path = "/data_lake/flights"
+    data_date = datetime.fromtimestamp(start_ts)
     partition_path = data_path \
-        + f"/depart_year={execution_date.year}" \
-        + f"/depart_month={execution_date.month}" \
-        + f"/depart_day={execution_date.day}"
+        + f"/depart_year={data_date.year}" \
+        + f"/depart_month={data_date.month}" \
+        + f"/depart_day={data_date.day}"
+    print(f"Extracting flights data in {data_date.strftime('%Y-%m-%d')}...")
 
     # Create SparkSession
     conf = get_default_SparkConf()
@@ -41,6 +43,13 @@ def main(airport_icao: str, start_ts: int, end_ts: int) -> None:
             list_flights, 
             schema = SCHEMAS.src_flights
         )
+        
+        # Partition columns departure_year/month/day will be extracted 
+        # from firstSeen. Therefore print msg if it is the case.
+        if df.filter(df["firstSeen"].isNull()).count() > 0:
+            print(f"NULLs detected in partitioned column \
+                firstSeen in {type} flights data")
+        
         df_extract = df_extract.unionByName(df)
 
     # Read current data in partition to another DataFrame
@@ -55,7 +64,7 @@ def main(airport_icao: str, start_ts: int, end_ts: int) -> None:
     
     # If no new data to append then end task 
     if df_cur_partition.count() == df_extract.count():
-        print(f"No new flights data for {execution_date}. Ending...")
+        print(f"No new flights data for {data_date}. Ending...")
         return "skipped"
     
     # Create partition columns

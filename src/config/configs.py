@@ -5,24 +5,6 @@ from pyspark.conf import SparkConf
 from pyspark.sql.types import *
 
 
-"""General DAG configs"""
-class GeneralConfig:
-    def __init__(self, airport_icao = "EDDF"):
-        self.airport_icao = airport_icao
-        self.date_format = "%Y-%m-%d"   # Wildcards based on datetime module
-
-    @property
-    def airport_icao(self):
-        return self._airport_icao
-
-    @airport_icao.setter
-    def airport_icao(self, value: str):
-        if not value.isalpha() or len(value) != 4:
-            raise ValueError("Airport ICAO code must have 4 letters")
-        
-        self._airport_icao = value
-
-
 """Service addresses and URIs"""
 class ServiceConfig:
     """Class for service configs"""
@@ -30,7 +12,8 @@ class ServiceConfig:
         lookup = {
             "hdfs": ("hdfs", "namenode", "8020"),
             "webhdfs": ("http", "namenode", "9870"),
-            "spark": ("spark", "spark-master", "7077")
+            "spark": ("spark", "spark-master", "7077"),
+            "hive_metastore": ("thrift", "hive-metastore", "9083")
         }
         try:
             self.service, self.hostname, self.port = lookup[key]
@@ -51,6 +34,7 @@ def get_default_SparkConf() -> SparkConf:
     """Get a SparkConf object with some default values"""
     HDFS_CONF = ServiceConfig("hdfs")
     SPARK_CONF = ServiceConfig("spark")
+    HIVE_METASTORE_CONF = ServiceConfig("hive_metastore")
 
     default_configs = [
         ("spark.master", SPARK_CONF.uri),
@@ -59,8 +43,11 @@ def get_default_SparkConf() -> SparkConf:
             "spark.hadoop.fs.defaultFS",
             f"{HDFS_CONF.service}://{HDFS_CONF.hostname}"
         ),
-        ("spark.hive.metastore.warehouse.dir", HDFS_CONF.uri + "/data_warehouse"),
-        ("spark.hive.execution.engine", "spark")
+        ("spark.hadoop.dfs.replication", 1),
+        ("spark.hive.exec.dynamic.partition", True),
+        ("spark.hive.exec.dynamic.partition.mode", "nonstrict"),  
+        ("spark.hive.metastore.uris", HIVE_METASTORE_CONF.uri)  
+            # so that Spark can read metadata into catalog
     ]
         
     conf = SparkConf().setAll(default_configs)
@@ -73,7 +60,7 @@ class SparkSchema:
         # Source schema expected for flights data from OpenSky API
         self.src_flights = StructType(
             [
-                StructField("icao24", StringType(), nullable = False),
+                StructField("icao24", StringType()),
                 StructField("firstSeen", LongType()),
                 StructField("estDepartureAirport", StringType()),
                 StructField("lastSeen", LongType()),
@@ -143,26 +130,3 @@ class SparkSchema:
                 StructField("Name", StringType())
             ]
         )
-
-
-"""Airflow is also a service. However, its configs specified in ServiceConfig 
-class were not used in the DAGs implementation, but its paths instead.
-
-Therefore, AirflowConfig class is not inherited from the ServiceConfig class.
-Instead, it is implemented as a standalone class with different attributes.
-"""
-class AirflowPaths:
-    def __init__(self):
-        self.home = os.getenv("AIRFLOW_HOME")
-
-    @property
-    def dags(self):
-        return os.path.join(self.home, "dags")
-    
-    @property
-    def jobs(self):
-        return os.path.join(self.home, "jobs")
-    
-    @property
-    def config(self):
-        return os.path.join(self.home, "config")

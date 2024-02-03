@@ -6,13 +6,14 @@ from datetime import datetime
 from configs import get_default_SparkConf
 
 
-def main(execution_date: datetime) -> None:
+def main(data_date: datetime) -> None:
     """Transformation on flights data"""
     # Get configs
+    data_date_str = data_date.strftime("%Y-%m-%d")
     partition_path = "/data_lake/flights" \
-        + f"/depart_year={execution_date.year}" \
-        + f"/depart_month={execution_date.month}" \
-        + f"/depart_day={execution_date.day}"
+        + f"/depart_year={data_date.year}" \
+        + f"/depart_month={data_date.month}" \
+        + f"/depart_day={data_date.day}"
 
     # Create SparkSession
     conf = get_default_SparkConf()
@@ -22,10 +23,10 @@ def main(execution_date: datetime) -> None:
         .getOrCreate()
     
     # Read current data
-    df_cur_partition = spark.read.parquet(partition_path)
+    df_flights = spark.read.parquet(partition_path)
     
     # Filter & rename columns
-    df_cur_partition = df_cur_partition \
+    df_flights = df_flights \
         .select(
             "icao24",
             "firstSeen",
@@ -44,55 +45,78 @@ def main(execution_date: datetime) -> None:
         )
     
     # Calculate dates and timestamps
-    df_cur_partition = df_cur_partition \
-        .dropna(subset = "depart_ts") \
+    df_flights = df_flights \
         .withColumns(
             {
-                "depart_ts": F.timestamp_seconds(df_cur_partition["depart_ts"]),
-                "arrival_ts": F.timestamp_seconds(df_cur_partition["arrival_ts"]),
-                "depart_dim_date_id": F.to_date(
-                    df_cur_partition["depart_ts"], "yyyyMMdd"
-                ),
-                "arrival_dim_date_id": F.to_date(
-                    df_cur_partition["arrival_ts"], "yyyyMMdd"
-                )
+                "flight_date_dim_id": \
+                    F.from_unixtime("depart_ts", "yyyyMMdd") \
+                        .cast(IntegerType()),
+                "depart_ts": F.timestamp_seconds("depart_ts"),
+                "arrival_ts": F.timestamp_seconds("arrival_ts")
             }
         )
     
     # Join dimensions to get dim_id for dim columns in fact table
+    # dim_airports
     df_airports = spark \
         .table("dim_airports") \
         .select("airport_dim_id", "icao_code")
-    df_cur_partition = df_cur_partition \
+    df_flights = df_flights \
         .join(
             df_airports,
-            on = (df_cur_partition["depart_airport_icao"] \
+            on = (df_flights["depart_airport_icao"] \
                 == df_airports["icao_code"]),
             how = "left"
         ) \
         .withColumnRenamed("airport_dim_id", "depart_airport_dim_id") \
-        .drop("icao_code") \
+        .drop("depart_airport_icao", "icao_code") \
         .join(
             df_airports,
-            on = (df_cur_partition["arrival_airport_icao"] \
+            on = (df_flights["arrival_airport_icao"] \
                 == df_airports["icao_code"]),
             how = "left"
         ) \
-        .drop("icao_code")
+        .withColumnRenamed("airport_dim_id", "arrival_airport_dim_id") \
+        .drop("arrival_airport_icao", "icao_code")
     
+    # dim_aircrafts
     df_aircrafts = spark \
         .table("dim_aircrafts") \
         .select("aircraft_dim_id", "icao24_addr")
-    df_cur_partition = df_cur_partition \
+    df_flights = df_flights \
         .join(
             df_aircrafts,
-            on = (df_cur_partition["aircraft_icao24"] \
+            on = (df_flights["aircraft_icao24"] \
                 == df_aircrafts["icao24_addr"]),
             how = "left"
         ) \
-        .drop("icao24_addr")
-    
-    df_cur_partition.limit(10).show()
+        .drop("aircraft_icao24", "icao24_addr")
+
+    # Reorder columns because df.subtract() is based on column position not names
+    df_flights = df_flights.select(
+        "aircraft_dim_id", 
+        "depart_ts", 
+        "depart_airport_dim_id", 
+        "arrival_ts", 
+        "arrival_airport_dim_id", 
+        "flight_date_dim_id"
+    )
+
+    # Compare current and processing data. Append new data.
+    cur_df_flights = spark.table("fct_flights") \
+        .filter(F.col("flight_date_dim_id") == data_date.strftime("%Y%m%d"))
+    df_append = df_flights.subtract(cur_df_flights)
+
+    if df_append.isEmpty():
+        print(f"No new flights data on {data_date_str}.")
+        return
+    else:
+        df_append.limit(10).show()
+        df_append.write \
+            .mode("append") \
+            .format("hive") \
+            .partitionBy("flight_date_dim_id") \
+            .saveAsTable("fct_flights")
 
 
 if __name__ == "__main__":
@@ -101,7 +125,7 @@ if __name__ == "__main__":
 
     # Parse CLI arguments
     parser = argparse.ArgumentParser()
-    parser.add_argument("execution_date",
+    parser.add_argument("data_date",
         help = "date of data (in YYYY-MM-DD)"
     )
     args = parser.parse_args()
@@ -112,9 +136,9 @@ if __name__ == "__main__":
 
     # Preliminary input validation
     try:
-        args.execution_date = datetime.strptime(args.execution_date, "%Y-%m-%d")
+        args.data_date = datetime.strptime(args.data_date, "%Y-%m-%d")
     except ValueError:
-        raise ValueError("\"execution_date\" must be in YYYY-MM-DD format.")
+        raise ValueError("\"data_date\" must be in YYYY-MM-DD format.")
 
     # Call main function
-    main(execution_date = args.execution_date)
+    main(data_date = args.data_date)

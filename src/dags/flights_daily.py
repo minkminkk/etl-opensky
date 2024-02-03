@@ -1,21 +1,25 @@
 from airflow import DAG
+
 from airflow.decorators.task_group import task_group
-from airflow.operators.python import PythonOperator
 from airflow.providers.apache.hdfs.hooks.webhdfs import WebHDFSHook
+from airflow.operators.python import PythonOperator
 from airflow.providers.apache.spark.operators.spark_submit \
     import SparkSubmitOperator
 from airflow.providers.apache.hive.operators.hive import HiveOperator
+
+from airflow.models import Variable
+
 from airflow.exceptions import AirflowSkipException
 
 import pendulum
-import logging
+import os
 
-from configs import GeneralConfig, ServiceConfig, AirflowPaths
-GENERAL_CONF = GeneralConfig()  # airport_icao, date_format
-HDFS_CONF = ServiceConfig("hdfs")
-SPARK_CONF = ServiceConfig("spark")
-AIRFLOW_PATHS = AirflowPaths()
 
+# Paths
+AIRFLOW_HOME = os.getenv("AIRFLOW_HOME")
+DIR_DAGS = f"{AIRFLOW_HOME}/dags"
+DIR_JOBS = f"{AIRFLOW_HOME}/jobs"
+DIR_CONFIG = f"{AIRFLOW_HOME}/config"
 
 # DAG's default arguments
 default_args = {
@@ -30,24 +34,24 @@ with DAG(
     default_args = default_args
 ) as dag:
     # Get template fields
-    ds = "{{ ds }}"
-    start_ts = "{{ data_interval_start.int_timestamp }}"
-    end_ts = "{{ data_interval_end.int_timestamp }}"
+    data_date = "{{ (data_interval_start.subtract(days = 1)).to_date_string() }}"
+    start_ts = "{{ (data_interval_start.subtract(days = 1)).int_timestamp }}"
+    end_ts = "{{ (data_interval_end.subtract(days = 1)).int_timestamp }}"
 
     # Hook to HDFS through Airflow WebHDFSHook
     webhdfs_hook = WebHDFSHook()
 
     # Default args for SparkSubmitOperators
-    default_py_files = f"{AIRFLOW_PATHS.config}/configs.py"
+    default_py_files = f"{DIR_CONFIG}/configs.py"
 
 
     """Extract flights data from OpenSky API and ingest into data lake"""
-    ingest_flights = SparkSubmitOperator(
-        task_id = "ingest_flights",
+    extract_flights = SparkSubmitOperator(
+        task_id = "extract_flights",
         name = "Extract flights data from OpenSky API into data lake",
-        application = f"{AIRFLOW_PATHS.jobs}/extract_flights.py",
+        application = f"{DIR_JOBS}/extract_flights.py",
         application_args = [
-            GENERAL_CONF.airport_icao, start_ts, end_ts
+            Variable.get("airport_icao"), start_ts, end_ts
         ],
         py_files = default_py_files,
         retries = 5,
@@ -95,12 +99,12 @@ with DAG(
 
 
     """Create Hive tables in data warehouse"""
-    create_hive_tbls = SparkSubmitOperator(
-        task_id = "create_hive_tbls",
-        name = "Create Hive tables in data warehouse",
-        application = f"{AIRFLOW_PATHS.jobs}/create_hive_tbls.py",
-        py_files = default_py_files
-    )
+    with open(f"{DIR_DAGS}/hql/create_hive_tbls.hql", "r") as script:
+        create_hive_tbls = HiveOperator(
+            task_id = "create_hive_tbls",
+            hql = script.read(),
+            run_as_owner = True
+        )
 
 
     """Transform and load dimension tables to data warehouse"""
@@ -115,18 +119,18 @@ with DAG(
         SparkSubmitOperator(
             task_id = "airports",
             name = "Load airports dim table to data warehouse",
-            application = f"{AIRFLOW_PATHS.jobs}/load_dim_airports.py"
+            application = f"{DIR_JOBS}/load_dim_airports.py"
         )
         SparkSubmitOperator(
             task_id = "aircrafts",
             name = "Load aircrafts dim table to data warehouse",
-            application = f"{AIRFLOW_PATHS.jobs}/load_dim_aircrafts.py",
-            application_args = [ds],
+            application = f"{DIR_JOBS}/load_dim_aircrafts.py",
+            application_args = [data_date],
         )
         SparkSubmitOperator(
             task_id = "dates",
             name = "Prepopulate dates dim table to data warehouse",
-            application = f"{AIRFLOW_PATHS.jobs}/load_dim_dates.py",
+            application = f"{DIR_JOBS}/load_dim_dates.py",
             application_args = ["2018-01-01", "2028-01-01"],
         )
 
@@ -135,12 +139,12 @@ with DAG(
     load_fct_flights = SparkSubmitOperator(
         task_id = "load_fct_flights",
         name = "Transform and load flights data to data warehouse",
-        application = f"{AIRFLOW_PATHS.jobs}/load_fct_flights.py",
-        application_args = [ds],
+        application = f"{DIR_JOBS}/load_fct_flights.py",
+        application_args = [data_date],
         py_files = default_py_files
     )
 
 
     """Task dependencies"""
     [upload_local(), create_hive_tbls] >> load_dim_tables() >> load_fct_flights
-    ingest_flights >> load_fct_flights
+    extract_flights >> load_fct_flights
