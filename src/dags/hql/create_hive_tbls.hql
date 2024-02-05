@@ -1,5 +1,5 @@
 -- dim_airports --
-CREATE EXTERNAL TABLE IF NOT EXISTS dim_airports (
+CREATE TABLE IF NOT EXISTS dim_airports (
     airport_dim_id INTEGER PRIMARY KEY DISABLE NOVALIDATE,
     icao_code CHAR(4) NOT NULL DISABLE,
     iata_code CHAR(3),

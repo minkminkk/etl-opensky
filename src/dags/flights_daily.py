@@ -109,7 +109,7 @@ with DAG(
 
     """Transform and load dimension tables to data warehouse"""
     @task_group(
-        group_id = "load_dim_tables",
+        group_id = "load_dim_tbls",
         default_args = {
             "trigger_rule": "none_failed",
             "py_files": default_py_files
