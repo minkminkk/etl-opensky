@@ -17,14 +17,15 @@ This project aims to create an ETL pipeline that runs daily
 
 ### 3.1. Data flow
 
-
+TODO
 
 ### 3.2. Airflow DAG
 
 ![Airflow DAG](imgs/airflow_dag.png)
 
 - Notes:
-    - `load_dim_tbl` task group has `none_failed` trigger rule (instead of the default `all_success`).
+    - `upload_from_local` task group will skip if files already uploaded.
+    - `load_dim_tbls` task group has `none_failed` trigger rule (instead of the default `all_success`).
 
 ### 3.3. Data warehouse schema
 
@@ -76,15 +77,16 @@ make down
 
 - Browser-based: Via the Airflow web UI using your browser.
 - Command line-based:
-
 ```bash
 make airflow_shell
 ```
 
+> [!warning]
+> The OpenSky API will mostly errors out when we tries to retrieve data near current time. Therefore be sure to only run pipelines about 2 months earlier than current date.
+
 ### 5.3. Query pipeline output in Data Warehouse
 
 - Via Hive's command line `beeline`:
-
 ```bash
 make beeline
 ```
