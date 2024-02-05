@@ -42,7 +42,7 @@ with DAG(
     webhdfs_hook = WebHDFSHook()
 
     # Default args for SparkSubmitOperators
-    default_py_files = f"{DIR_CONFIG}/services.py"
+    default_py_files = f"{DIR_CONFIG}/config_services.py"
 
 
     """Extract flights data from OpenSky API and ingest into data lake"""

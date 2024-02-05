@@ -1,14 +1,14 @@
 #!/usr/bin/bash
 
-cur_dir=$(pwd)
-
+cur_dir=$(pwd)  # Checkpoint for cd back to initial dir
+# Create directories if not exist 
 if ! [ -d $1 ];
 then
     mkdir -p $1
 fi
-
 cd $1
 
+# Check data
 echo "Checking aircraft data..."
 if ! [ -f ./aircraft-database-complete-2024-01.csv ];
 then

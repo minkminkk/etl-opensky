@@ -156,11 +156,10 @@ def field_vals_to_nulls(
 
 def preprocess_aircrafts(df: DataFrame) -> DataFrame:
     """Drop NULLs & unused columns. Remap NULL-representing values to NULL.
-    Specify operator identifier based on priority ICAO -> IATA -> name (if have)
+    Specify operator identifier based on priority ICAO -> IATA
     """
     df = df.drop("manufacturer_name", "operator_callsign", "owner", "note") \
         .dropna("all") \
-        .dropna(subset = ["manufacturer_code"]) \
         .where("LENGTH(icao_designator) <= 4 OR icao_designator IS NULL") \
         .where("LENGTH(icao_type) == 3 OR icao_type IS NULL")   
             # fields that do not satisfy `where` could be filled with NULLs
@@ -249,7 +248,7 @@ def df_aircrafts_fk_constraint_check(
     )
 
     # Check if filter too much so that dim table PK does not exist for fact table
-    assert df_flights.filter(F.isnull("icao24_addr")).count() > 0
+    assert df_flights.filter(F.isnull("icao24_addr")).count() == 0
 
 
 if __name__ == "__main__":

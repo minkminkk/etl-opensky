@@ -7,7 +7,7 @@ from datetime import datetime
 import logging
 import requests
 
-from configs import get_default_SparkConf, SparkSchema
+from config_services import get_default_SparkConf, SparkSchema
 SCHEMAS = SparkSchema()
 
 # TODO: Create new column flight_date based on firstSeen and lastSeen.
