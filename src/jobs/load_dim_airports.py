@@ -11,7 +11,7 @@ import pyspark.sql.functions as F
 import hdfs
 import json
 
-from configs import ServiceConfig, get_default_SparkConf, SparkSchema
+from config_services import ServiceConfig, get_default_SparkConf, SparkSchema
 SCHEMAS = SparkSchema()
 WEBHDFS_URI = ServiceConfig("webhdfs").uri
 
@@ -29,7 +29,6 @@ def main() -> None:
     # Schema reading on creating DataFrame was also tried but did not work as
     # Field values are still integers (e.g. 7 instead of 7.0).
     # Decided to cast fields before loading into DataFrame.
-    # TODO: maybe see if can solve with RDD?
     for airport in airports:
         airport["lat"] = float(airport["lat"])
         airport["lon"] = float(airport["lon"])
@@ -54,7 +53,7 @@ def main() -> None:
     cur_df_airports = spark.table("dim_airports")
     if cur_df_airports == df_airports:
         print("No new data was detected.")
-        return "skipped"
+        return
 
     # Write to DWH if there is new data
     print("Detected new data. Overwriting old data")

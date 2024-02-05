@@ -34,15 +34,15 @@ with DAG(
     default_args = default_args
 ) as dag:
     # Get template fields
-    data_date = "{{ (data_interval_start.subtract(days = 1)).to_date_string() }}"
-    start_ts = "{{ (data_interval_start.subtract(days = 1)).int_timestamp }}"
-    end_ts = "{{ (data_interval_end.subtract(days = 1)).int_timestamp }}"
+    data_date = "{{ data_interval_start.to_date_string() }}"
+    data_start_ts = "{{ data_interval_start.int_timestamp }}"
+    data_end_ts = "{{ data_interval_end.int_timestamp }}"
 
     # Hook to HDFS through Airflow WebHDFSHook
     webhdfs_hook = WebHDFSHook()
 
     # Default args for SparkSubmitOperators
-    default_py_files = f"{DIR_CONFIG}/configs.py"
+    default_py_files = f"{DIR_CONFIG}/services.py"
 
 
     """Extract flights data from OpenSky API and ingest into data lake"""
@@ -51,7 +51,7 @@ with DAG(
         name = "Extract flights data from OpenSky API into data lake",
         application = f"{DIR_JOBS}/extract_flights.py",
         application_args = [
-            Variable.get("airport_icao"), start_ts, end_ts
+            Variable.get("airport_icao"), data_start_ts, data_end_ts
         ],
         py_files = default_py_files,
         retries = 5,

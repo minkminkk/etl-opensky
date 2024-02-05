@@ -13,7 +13,7 @@ from datetime import datetime
 import hdfs
 import json
 
-from configs import ServiceConfig, get_default_SparkConf, SparkSchema
+from config_services import ServiceConfig, get_default_SparkConf, SparkSchema
 SCHEMAS = SparkSchema()
 WEBHDFS_URI = ServiceConfig("webhdfs").uri
 
@@ -77,28 +77,34 @@ def main(data_date: datetime) -> None:
     df_aircrafts = df_aircrafts \
         .join(
             df_manufacturers,
-            on = (df_aircrafts["manufacturer_code"] \
-                == df_manufacturers["code"]),
+            on = df_aircrafts["manufacturer_code"] \
+                == df_manufacturers["code"],
             how = "left"
         ) \
-        .drop("manufacturer_code", "code") \
+        .drop("manufacturer_code", "code")
+        
+    df_aircrafts = df_aircrafts \
         .join(
             df_aircraft_types,
-            on = (df_aircrafts["icao_type"] \
-                == df_aircraft_types["icao_type_code"]),
+            on = df_aircrafts["icao_type"] \
+                == df_aircraft_types["icao_type_code"],
             how = "left"
         ) \
-        .drop("icao_type_code") \
+        .drop("icao_type_code")
+    
+    df_aircrafts = df_aircrafts \
         .join(
             df_airlines,
-            on = ~df_airlines["identifier"].isNull() &
-                (df_aircrafts["operator_identifier"] \
-                == df_airlines["identifier"]),
+            on = df_aircrafts["operator_identifier"] \
+                    == df_airlines["identifier"],  # identifier: ICAO/IATA code
             how = "left"
-        ) \
-        .withColumn(
+        ).withColumn(
             "operating_airline",
-            F.when(F.col("operating_airline").isNull(), F.col("operator_name"))
+            F.when(
+                df_airlines["identifier"].isNull(), 
+                df_aircrafts["operator_name"]  
+            ).otherwise(df_airlines["operating_airline"]) 
+            # if no such airlines in aircrafts table then NULL
         ) \
         .drop(
             "operator_name", 
@@ -107,7 +113,7 @@ def main(data_date: datetime) -> None:
             "operator_identifier",
             "identifier"
         )
-    
+
     # Add dim_id column and rearrange columns order
     df_aircrafts = df_aircrafts \
         .withColumn(
@@ -121,6 +127,7 @@ def main(data_date: datetime) -> None:
         print("No new data was found. Cancelled writing.")
     else:
         print("New data found. Overwrite on old data.")
+        df_aircrafts.show(10)   # for logging purposes
         df_aircrafts.write \
             .mode("overwrite") \
             .format("hive") \
@@ -135,7 +142,7 @@ def field_vals_to_nulls(
     words back to NULL."""
     # If field value in word list then retain value, else None
     for col, words in col_map.items():
-        bool_expr = ~(F.col(col) == F.col(col))
+        bool_expr = ~(F.col(col) == F.col(col)) # initially False
         for w in words:
             bool_expr |= (F.col(col) == w) # only becomes True when word found
             
@@ -166,18 +173,10 @@ def preprocess_aircrafts(df: DataFrame) -> DataFrame:
         }
     )
 
-    # Get identifier for operator
+    # Get identifier for operator (prio icao -> iata -> NULL)
     df = df.withColumn(
         "operator_identifier",
-        F.when(
-            ~F.col("operator_icao").isNull(),
-            F.col("operator_icao")
-        ).otherwise(
-            F.when(
-                ~F.col("operator_iata").isNull(),
-                F.col("operator_iata")
-            )
-        )
+        F.coalesce("operator_icao", "operator_iata")
     )
     
     return df
@@ -186,17 +185,17 @@ def preprocess_aircrafts(df: DataFrame) -> DataFrame:
 def preprocess_manufacturers(df: DataFrame) -> DataFrame:
     """Skip first line. Rename columns."""
     return df.offset(1) \
-        .withColumnsRenamed(
-            {
-                "Code": "code",
-                "Name": "manufacturer"
-            }
-        )
+        .withColumnsRenamed({"Code": "code", "Name": "manufacturer"})
 
 
 def preprocess_aircraft_types(df: DataFrame) -> DataFrame:
-    """Drop unused columns. Rename columns. Drop duplicate rows."""
-    return df.drop("Designator", "ManufacturerCode", "ModelFullName", "WTC") \
+    """Select & rename columns. Drop duplicate rows."""
+    return df.select(
+            "AircraftDescription", 
+            "Description", 
+            "EngineCount", 
+            "EngineType"
+        ) \
         .withColumnsRenamed(
             {
                 "AircraftDescription": "aircraft_type",
@@ -218,7 +217,7 @@ def preprocess_airlines(df: DataFrame) -> DataFrame:
         }
     ) \
         .melt(
-            "operating_airline", 
+            ids = "operating_airline", 
             values = ["iata", "icao"],
             variableColumnName = "code",
             valueColumnName = "identifier"
@@ -235,20 +234,22 @@ def df_aircrafts_fk_constraint_check(
     """
     spark = SparkSession.getActiveSession()
 
-    flights_partition_path = "/data_lake/flights" \
-        + f"/depart_year={data_date.year}" \
-        + f"/depart_month={data_date.month}" \
-        + f"/depart_day={data_date.day}"
-    df_flights = spark.read.parquet(flights_partition_path)
-    df_check = df_flights.join(
+    flight_data_path = "/data_lake/flights"
+    df_flights = spark.read.parquet(flight_data_path) \
+        .filter(
+            (F.col("flight_year") == data_date.year)
+            & (F.col("flight_month") == data_date.month)
+            & (F.col("flight_day") == data_date.day)
+        ) \
+        .select("icao24")
+    df_flights = df_flights.join(
         df_aircrafts, 
         on = (df_flights["icao24"] == df_aircrafts["icao24_addr"]),
         how = "left"
     )
 
-    if df_check.filter(F.isnull(F.col("icao24_addr"))).count() > 0:
-        print("icao24_addr has NULL values after join.")
-        raise Exception("Data check failed")
+    # Check if filter too much so that dim table PK does not exist for fact table
+    assert df_flights.filter(F.isnull("icao24_addr")).count() > 0
 
 
 if __name__ == "__main__":

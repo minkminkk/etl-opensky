@@ -3,17 +3,15 @@ from pyspark.sql.types import *
 import pyspark.sql.functions as F
 
 from datetime import datetime
-from configs import get_default_SparkConf
+from config_services import get_default_SparkConf
 
 
 def main(data_date: datetime) -> None:
     """Transformation on flights data"""
     # Get configs
+    data_path = "/data_lake/flights"
     data_date_str = data_date.strftime("%Y-%m-%d")
-    partition_path = "/data_lake/flights" \
-        + f"/depart_year={data_date.year}" \
-        + f"/depart_month={data_date.month}" \
-        + f"/depart_day={data_date.day}"
+    print(f"Transforming and loading fct_flights table on {data_date}...")
 
     # Create SparkSession
     conf = get_default_SparkConf()
@@ -22,18 +20,16 @@ def main(data_date: datetime) -> None:
         .enableHiveSupport() \
         .getOrCreate()
     
-    # Read current data
-    df_flights = spark.read.parquet(partition_path)
+    # Read flights data partition
+    df_flights = spark.read.parquet(data_path) \
+        .filter(
+            (F.col("flight_year") == data_date.year)
+            & (F.col("flight_month") == data_date.month)
+            & (F.col("flight_day") == data_date.day)
+        )
     
     # Filter & rename columns
     df_flights = df_flights \
-        .select(
-            "icao24",
-            "firstSeen",
-            "estDepartureAirport",
-            "lastSeen",
-            "estArrivalAirport",
-        ) \
         .withColumnsRenamed(
             {
                 "icao24": "aircraft_icao24",
@@ -44,19 +40,20 @@ def main(data_date: datetime) -> None:
             }
         )
     
-    # Calculate dates and timestamps
+    # Calculate timestamps and date_dim_id
     df_flights = df_flights \
         .withColumns(
             {
-                "flight_date_dim_id": \
-                    F.from_unixtime("depart_ts", "yyyyMMdd") \
-                        .cast(IntegerType()),
                 "depart_ts": F.timestamp_seconds("depart_ts"),
-                "arrival_ts": F.timestamp_seconds("arrival_ts")
+                "arrival_ts": F.timestamp_seconds("arrival_ts"),
+                "flight_date_dim_id": \
+                    F.col("flight_year") * 10**4 \
+                    + F.col("flight_month") * 10**2 \
+                    + F.col("flight_day")
             }
-        )
+        ).drop("flight_year", "flight_month", "flight_day")
     
-    # Join dimensions to get dim_id for dim columns in fact table
+    # Join dimensions to get dim_id for the remaining dim columns in fact table
     # dim_airports
     df_airports = spark \
         .table("dim_airports") \

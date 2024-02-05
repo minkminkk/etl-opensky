@@ -4,7 +4,7 @@ from pyspark.sql.types import *
 from datetime import datetime, timedelta
 import logging
 
-from configs import ServiceConfig, get_default_SparkConf, SparkSchema
+from config_services import get_default_SparkConf, SparkSchema
 SCHEMAS = SparkSchema()
 
 

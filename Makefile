@@ -20,6 +20,8 @@ start:
 stop:
 	docker compose stop
 
-# Make airflow shell
+# Make shells
 airflow_shell:
 	docker exec -it etl-opensky-airflow-1 /bin/bash
+beeline:
+	docker exec -it etl-opensky-hive-server-1 beeline -u 'jdbc:hive2://hive-server:10000'

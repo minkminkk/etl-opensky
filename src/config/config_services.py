@@ -71,7 +71,11 @@ class SparkSchema:
                 StructField("estArrivalAirportHorizDistance", IntegerType()),
                 StructField("estArrivalAirportVertDistance", IntegerType()),
                 StructField("departureAirportCandidatesCount", ShortType()),
-                StructField("arrivalAirportCandidatesCount", ShortType())
+                StructField("arrivalAirportCandidatesCount", ShortType()),
+                # Partition columns
+                StructField("flight_year", ShortType()),
+                StructField("flight_month", ByteType()),
+                StructField("flight_day", ByteType()),
             ]
         )
         # Source schema expected from local files

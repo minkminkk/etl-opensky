@@ -10,17 +10,15 @@ import requests
 from configs import get_default_SparkConf, SparkSchema
 SCHEMAS = SparkSchema()
 
+# TODO: Create new column flight_date based on firstSeen and lastSeen.
+# Change partition column to flight_date. Fix related jobs.
 
-def main(airport_icao: str, start_ts: int, end_ts: int) -> None:
+def main(airport_icao: str, data_start_ts: int, data_end_ts: int) -> None:
 
     """Ingest extracted data from OpenSky API to data lake"""
     # Get HDFS URI of current partition
     data_path = "/data_lake/flights"
-    data_date = datetime.fromtimestamp(start_ts)
-    partition_path = data_path \
-        + f"/depart_year={data_date.year}" \
-        + f"/depart_month={data_date.month}" \
-        + f"/depart_day={data_date.day}"
+    data_date = datetime.fromtimestamp(data_start_ts)
     print(f"Extracting flights data in {data_date.strftime('%Y-%m-%d')}...")
 
     # Create SparkSession
@@ -32,7 +30,7 @@ def main(airport_icao: str, start_ts: int, end_ts: int) -> None:
     # Extract data into DataFrame
     df_extract = spark.createDataFrame([], schema = SCHEMAS.src_flights)
     for type in ["departure", "arrival"]:
-        response = request_opensky(type, airport_icao, start_ts, end_ts)
+        response = request_opensky(type, airport_icao, data_start_ts, data_end_ts)
         list_flights = process_response(
             response, 
             response_check = lambda res: res.json()[0]["icao24"],
@@ -43,50 +41,65 @@ def main(airport_icao: str, start_ts: int, end_ts: int) -> None:
             list_flights, 
             schema = SCHEMAS.src_flights
         )
-        
-        # Partition columns departure_year/month/day will be extracted 
-        # from firstSeen. Therefore print msg if it is the case.
-        if df.filter(df["firstSeen"].isNull()).count() > 0:
-            print(f"NULLs detected in partitioned column \
-                firstSeen in {type} flights data")
-        
-        df_extract = df_extract.unionByName(df)
 
-    # Read current data in partition to another DataFrame
-    try:
-        df_cur_partition = spark.read.parquet(partition_path) \
-            .drop("depart_year", "depart_month", "depart_day")
-    except AnalysisException:   # In case partition empty
-        df_cur_partition = spark.createDataFrame(
-            [], 
-            schema = SCHEMAS.src_flights
-        )
+        # Partition columns flight_year/month/day will be extracted 
+        # from firstSeen/lastSeen. Therefore print msg if it has NULLs.
+        flight_date_identifier = df["firstSeen"] \
+            if type == "departure" else df["lastSeen"]
+        if df.filter(flight_date_identifier.isNull()).count() > 0:
+            print(f"NULLs detected in {type} flights data \
+                (which was intended to be the partition column)")
+        
+        # Create partition columns
+        df = df \
+            .withColumn(
+                "flight_ts",
+                F.timestamp_seconds(flight_date_identifier)
+            )
+        df = df.withColumns(
+            {
+                "flight_year": F.year(df["flight_ts"]),
+                "flight_month": F.month(df["flight_ts"]),
+                "flight_day": F.day(df["flight_ts"])
+            }
+        ).drop("flight_ts")
+
+        # Merge to common output DataFrame
+        df_extract = df_extract.unionByName(df)
     
-    # If no new data to append then end task 
-    if df_cur_partition.count() == df_extract.count():
-        print(f"No new flights data for {data_date}. Ending...")
-        return "skipped"
+    # Read current data in current partition to another DataFrame
+    jsc = spark._jsc
+    fs = spark._jvm.org.apache.hadoop.fs
+    fs_conf = fs.FileSystem.get(jsc.hadoopConfiguration())
     
-    # Create partition columns
-    df_append = df_extract.subtract(df_cur_partition)
-    df_append = df_append.withColumn(
-        "departure_ts", 
-        F.to_timestamp(F.from_unixtime(df_append["firstSeen"]))
-    )
-    # Split into another line to avoid conflict on firstSeen
-    df_append = df_append.withColumns(
-        {
-            "depart_year": F.year(df_append["departure_ts"]),
-            "depart_month": F.month(df_append["departure_ts"]),
-            "depart_day": F.day(df_append["departure_ts"])
-        }
-    ).drop("departure_ts")
+    if fs_conf.exists(fs.Path(data_path)):
+        df_cur_partition = spark.read.parquet(data_path) \
+            .filter(
+                (F.col("flight_year") == data_date.year)
+                & (F.col("flight_month") == data_date.month)
+                & (F.col("flight_day") == data_date.day)
+            )
     
+        # If no new data to append then end task
+        if df_cur_partition.count() == df_extract.count():
+            print(f"No new flights data for {data_date}. Ending...")
+            return
+
+        # Extract new data compared to current data
+        df_append = df_extract.subtract(df_cur_partition)
+    else:
+        # If file is written for the first time (no partition exists) 
+        # then write all extracted data
+        print(f"{data_path} does not exist. Creating directories...")
+        df_append = df_extract
+
     # Write into HDFS
     df_append.limit(10).show()     # for logging added data
     df_append.write \
-        .partitionBy("depart_year", "depart_month", "depart_day") \
-        .parquet(data_path, mode = "append")
+        .mode("append") \
+        .partitionBy("flight_year", "flight_month", "flight_day") \
+        .parquet(data_path)
+    print(f"Written {df_append.count()} records into {data_path}")
 
 
 def request_opensky(type: str, airport_icao: str, start_ts: int, end_ts: int) \
@@ -140,11 +153,21 @@ if __name__ == "__main__":
     
     # Parse CLI arguments
     parser = argparse.ArgumentParser()
-    parser.add_argument("airport_icao",
+    parser.add_argument(
+        "airport_icao",
+        type = str,
         help = "ICAO code of airport to be investigated"
     )
-    parser.add_argument("start_ts", type = int, help = "Data start timestamp")
-    parser.add_argument("end_ts", type = int, help = "Data end timestamp")
+    parser.add_argument(
+        "data_start_ts", 
+        type = int, 
+        help = "Data start timestamp"
+    )
+    parser.add_argument(
+        "data_end_ts", 
+        type = int, 
+        help = "Data end timestamp"
+    )
     args = parser.parse_args()
 
     # Specify timezone as UTC so that strptime can parse date strings into UTC
@@ -154,6 +177,6 @@ if __name__ == "__main__":
     # Call main function
     main(
         airport_icao = args.airport_icao,
-        start_ts = args.start_ts,
-        end_ts = args.end_ts
+        data_start_ts = args.data_start_ts,
+        data_end_ts = args.data_end_ts
     )
