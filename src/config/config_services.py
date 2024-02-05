@@ -1,6 +1,5 @@
 """File for DAGs related configs"""
 
-import os
 from pyspark.conf import SparkConf
 from pyspark.sql.types import *
 
