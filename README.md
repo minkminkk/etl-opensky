@@ -14,7 +14,7 @@ This project aims to create an ETL pipeline that runs daily to gather historical
 - **Apache Hadoop's HDFS** as the project's distributed file system.
 - **Apache Hive** as the data warehousing tool.
 
-## 3. Additional information
+## 3. About the pipeline
 
 ### 3.1. Data flow
 
