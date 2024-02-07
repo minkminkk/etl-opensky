@@ -22,7 +22,7 @@ This project aims to create an ETL pipeline that runs daily to gather historical
 
 - Data sources:
     - Flights data: from [OpenSky API](https://openskynetwork.github.io/opensky-api/rest.html), extracted daily.
-    - Aircrafts, aircraft types & manufacturers data: from [OpenSky Metadata directory](https://opensky-network.org/datasets/metadata/), downloaded sa local files.
+    - Aircrafts, aircraft types & manufacturers data: from [OpenSky Metadata directory](https://opensky-network.org/datasets/metadata/), downloaded as local files.
     - Airports & airlines data: from FlightRadar24 ([airports](https://www.flightradar24.com/_json/airports.php), [airlines](https://www.flightradar24.com/_json/airlines.php)), saved as local files.
     
 > [!note] 
@@ -124,6 +124,7 @@ The `Makefile` also connects to the existing database. After connected, it is re
 
 ## 7. Things to improve
 
+- Improve data modeling for data warehouse: So that data can be more effectively queried.
 - Configure HDFS to persist data between runs.
 - Implement CDC for dimension data.
 - Configure cluster to save Spark logs.
