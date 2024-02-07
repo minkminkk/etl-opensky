@@ -118,9 +118,11 @@ The `Makefile` also connects to the existing database. After connected, it is re
 ### Target airport for pipeline
 
 - The target airport for flight data extraction is currently Frankfurt airport (ICAO code `EDDF`).
-- If you want to change, modify environment variable `AIRFLOW_VAR_AIRPORT_ICAO` with the ICAO code of your desired airport.
+- If you want to change the target airport:
     - At runtime: create new variable `airport_icao` in Airflow Web UI.
-    - At container creation: in `containers/airflow/airflow.env`.
+    - At container creation: modify environment variable `AIRFLOW_VAR_AIRPORT_ICAO` in `containers/airflow/airflow.env`.
+
+    The variable should have the [ICAO code](https://en.wikipedia.org/wiki/ICAO_airport_code) of the target airport. 
 
 ## 7. Things to improve
 
