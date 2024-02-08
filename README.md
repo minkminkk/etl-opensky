@@ -90,18 +90,19 @@ make down
 
 ### 5.1. Interfaces
 
-- Airflow web UI: `localhost:8080`.
+- Airflow web UI: `localhost:8080` (Username: `admin`, password: `admin`).
 - Spark master web UI: `localhost:8081`.
 - HDFS web UI: `localhost:9870`.
 - Hiveserver web UI: `localhost:10002`.
 
-### 5.2. Schedule DAGs
+### 5.2. Start DAG
 
 - Browser-based: Via the Airflow web UI using your browser.
 - Command line-based:
 ```bash
 make airflow_shell
 ```
+Then use the [Airflow CLI commands](https://airflow.apache.org/docs/apache-airflow/stable/cli-and-env-variables-ref.html) to interact with Airflow.
 
 > [!warning]
 > The OpenSky API will mostly errors out when we tries to retrieve data near current time. Therefore you should only run pipelines **about 2 months earlier** than current date.
