@@ -20,11 +20,13 @@ This project aims to create an ETL pipeline that runs daily to gather historical
 
 ![Data Flow](imgs/data_flow.png)
 
+- 2-tier architecture with data lake to store raw data.
 - Data sources:
     - Flights data: from [OpenSky API](https://openskynetwork.github.io/opensky-api/rest.html), extracted daily.
     - Aircrafts, aircraft types & manufacturers data: from [OpenSky Metadata directory](https://opensky-network.org/datasets/metadata/), downloaded as local files.
     - Airports & airlines data: from FlightRadar24 ([airports](https://www.flightradar24.com/_json/airports.php), [airlines](https://www.flightradar24.com/_json/airlines.php)), saved as local files.
-    
+- All source data is ingested into HDFS. After transformation, they are loaded as Hive tables into data warehouse.
+
 > [!note] 
 > For simplicity, dimension data is extracted **only once** and saved as `.csv`, `.json` files. Therefore, the data will not be up to date in the future. In real-life cases, there should be CDC systems that can detect changes in dimension data.
 
