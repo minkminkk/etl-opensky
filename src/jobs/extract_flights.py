@@ -10,8 +10,6 @@ import requests
 from config_services import get_default_SparkConf, SparkSchema
 SCHEMAS = SparkSchema()
 
-# TODO: Create new column flight_date based on firstSeen and lastSeen.
-# Change partition column to flight_date. Fix related jobs.
 
 def main(airport_icao: str, data_start_ts: int, data_end_ts: int) -> None:
 
